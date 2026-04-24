@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "productos" ADD COLUMN     "controlar_stock" BOOLEAN NOT NULL DEFAULT true;
