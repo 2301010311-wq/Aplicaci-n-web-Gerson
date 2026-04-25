@@ -35,7 +35,7 @@ export default function MesasPage() {
             <p className="text-[#C9A227] mt-1 text-xs md:text-sm">Gestión de mesas</p>
           </div>
           <Link href="/mesas/nueva">
-            <Button className="bg-[#C9A227] hover:bg-[#a88820] text-[#1C1C1C] font-semibold text-xs md:text-sm px-3 md:px-4 py-2">
+            <Button className="bg-[#C9A227] hover:bg-[#d9af25] text-[#1C1C1C] font-semibold text-xs md:text-sm px-3 md:px-4 py-2">
               <Plus className="w-3 md:w-4 h-3 md:h-4 mr-1" />
               Nueva
             </Button>
