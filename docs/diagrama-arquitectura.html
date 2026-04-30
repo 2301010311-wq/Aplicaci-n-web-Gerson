@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arquitectura - Pollería Gerson</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            width: 100%;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.95;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            padding: 20px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e0e0e0;
+            flex-wrap: wrap;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .diagram-container {
+            padding: 30px;
+            overflow-x: auto;
+            display: flex;
+            justify-content: center;
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+        }
+
+        .info {
+            background: #f0f4c3;
+            border-left: 5px solid #827717;
+            padding: 15px;
+            margin: 20px;
+            border-radius: 4px;
+        }
+
+        .info h3 {
+            color: #827717;
+            margin-bottom: 8px;
+        }
+
+        .info p {
+            color: #555;
+            line-height: 1.6;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .feature-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.3s;
+        }
+
+        .feature-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .feature-card h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .feature-card p {
+            color: #666;
+            font-size: 0.95em;
+            line-height: 1.6;
+        }
+
+        .footer {
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            border-top: 1px solid #e0e0e0;
+            margin-top: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .controls {
+                flex-direction: column;
+            }
+
+            button {
+                width: 100%;
+            }
+        }
+
+        .spinner {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 30px;
+            border-radius: 8px;
+            color: white;
+            z-index: 1000;
+            text-align: center;
+        }
+
+        .spinner.show {
+            display: block;
+        }
+
+        .spinner p {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🍗 Arquitectura - Pollería Gerson</h1>
+            <p>Stack Tecnológico Completo</p>
+        </div>
+
+        <div class="controls">
+            <button onclick="descargarPNG()">📥 Descargar como PNG</button>
+            <button onclick="descargarSVG()">📥 Descargar como SVG</button>
+            <button onclick="ampliarDiagrama()">🔍 Ampliar</button>
+        </div>
+
+        <div class="info">
+            <h3>📋 Información</h3>
+            <p>Este diagrama muestra la arquitectura completa de la aplicación "Pollería Gerson" con todas sus herramientas, tecnologías y flujos de despliegue CI/CD. Desarrollado con Windows, Next.js, React, TypeScript, PostgreSQL y Docker.</p>
+        </div>
+
+        <div class="diagram-container">
+            <div class="mermaid">
+                graph TB
+                    subgraph WorkEnv["🖥️ Entorno de Trabajo"]
+                        OS["Windows 10/11"]
+                        IDE["Visual Studio Code"]
+                        Git["Git"]
+                    end
+
+                    subgraph Frontend["🎨 Frontend"]
+                        React["React 19"]
+                        Next["Next.js 15"]
+                        TS["TypeScript 5.9"]
+                        CSS["Tailwind CSS"]
+                        UI["Radix UI Components"]
+                    end
+
+                    subgraph Backend["⚙️ Backend"]
+                        Node["Node.js 20"]
+                        NextAPI["Next.js API Routes"]
+                        Prisma["Prisma ORM"]
+                        Auth["Auth - JWT/Jose"]
+                        Validation["Zod - Validación"]
+                    end
+
+                    subgraph Database["🗄️ Base de Datos"]
+                        PostgreSQL["PostgreSQL"]
+                        Docker_DB["Docker"]
+                    end
+
+                    subgraph BuildTools["🔧 Herramientas Build"]
+                        PNPM["PNPM Package Manager"]
+                        Jest["Jest Testing"]
+                        SWC["SWC Compiler"]
+                        PostCSS["PostCSS"]
+                    end
+
+                    subgraph DevTools["🛠️ Herramientas Desarrollo"]
+                        ESLint["ESLint"]
+                        Prettier["Prettier"]
+                        DotEnv["Dotenv"]
+                    end
+
+                    subgraph Deployment["📦 Despliegue"]
+                        DockerBuild["Docker Build"]
+                        DockerImg["Imagen Docker"]
+                        DockerHub["Docker Hub Registry"]
+                    end
+
+                    subgraph GitHub_Section["📌 GitHub"]
+                        GHRepo["Repositorio GitHub"]
+                        GHActions["GitHub Actions"]
+                    end
+
+                    subgraph Production["🚀 Producción"]
+                        ProdEnv["Servidor Producción"]
+                        ProdDB["PostgreSQL en Prod"]
+                    end
+
+                    subgraph Libraries["📚 Librerías Principales"]
+                        HookForm["React Hook Form"]
+                        Charts["Recharts - Gráficos"]
+                        Icons["Lucide React - Iconos"]
+                        DateLib["date-fns - Fechas"]
+                        Toast["Sonner - Notificaciones"]
+                        Crypto["bcryptjs - Encriptación"]
+                    end
+
+                    WorkEnv -->|Desarrollo| Frontend
+                    Frontend -->|usa| React
+                    Frontend -->|framework| Next
+                    Frontend -->|tipado| TS
+                    Frontend -->|estilos| CSS
+                    Frontend -->|componentes| UI
+
+                    Next -->|API Routes| Backend
+                    Backend -->|runtime| Node
+                    Backend -->|framework| NextAPI
+                    Backend -->|ORM| Prisma
+                    Backend -->|autenticación| Auth
+                    Backend -->|validación| Validation
+
+                    Prisma -->|conecta a| Database
+                    PostgreSQL -->|corre en| Docker_DB
+                    Database -->|almacena| ProdDB
+
+                    Frontend -->|usa| BuildTools
+                    Backend -->|usa| BuildTools
+                    PNPM -->|maneja dependencias| BuildTools
+                    Jest -->|testing| BuildTools
+                    SWC -->|compilación rápida| BuildTools
+
+                    Frontend -->|utiliza| Libraries
+                    Backend -->|utiliza| Libraries
+
+                    Frontend -->|usa| DevTools
+                    Backend -->|usa| DevTools
+
+                    WorkEnv -->|versionado| Git
+                    Git -->|push/pull| GHRepo
+                    GHRepo -->|integración| GHActions
+
+                    GHActions -->|triggerea| Deployment
+                    Deployment -->|docker build| DockerImg
+                    DockerImg -->|push| DockerHub
+
+                    DockerHub -->|docker pull| Production
+                    Production -->|ejecuta| ProdEnv
+
+                    style WorkEnv fill:#e1f5ff,stroke:#01579b,stroke-width:2px
+                    style Frontend fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+                    style Backend fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+                    style Database fill:#fff3e0,stroke:#e65100,stroke-width:2px
+                    style BuildTools fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+                    style DevTools fill:#f1f8e9,stroke:#33691e,stroke-width:2px
+                    style Deployment fill:#e0f2f1,stroke:#004d40,stroke-width:2px
+                    style GitHub_Section fill:#fbe9e7,stroke:#bf360c,stroke-width:2px
+                    style Production fill:#ede7f6,stroke:#3f51b5,stroke-width:2px
+                    style Libraries fill:#f0f4c3,stroke:#827717,stroke-width:2px
+            </div>
+        </div>
+
+        <div class="features">
+            <div class="feature-card">
+                <h4>🖥️ Desarrollo</h4>
+                <p><strong>OS:</strong> Windows 10/11<br><strong>IDE:</strong> VS Code<br><strong>Control:</strong> Git</p>
+            </div>
+
+            <div class="feature-card">
+                <h4>🎨 Frontend</h4>
+                <p><strong>Framework:</strong> Next.js 15<br><strong>Librería:</strong> React 19<br><strong>Lenguaje:</strong> TypeScript</p>
+            </div>
+
+            <div class="feature-card">
+                <h4>⚙️ Backend</h4>
+                <p><strong>Runtime:</strong> Node.js 20<br><strong>Framework:</strong> Next.js API<br><strong>ORM:</strong> Prisma</p>
+            </div>
+
+            <div class="feature-card">
+                <h4>🗄️ Base de Datos</h4>
+                <p><strong>Motor:</strong> PostgreSQL<br><strong>Contenedor:</strong> Docker<br><strong>Persistencia:</strong> Volúmenes</p>
+            </div>
+
+            <div class="feature-card">
+                <h4>🔧 Build & Testing</h4>
+                <p><strong>Gestor Paquetes:</strong> PNPM<br><strong>Testing:</strong> Jest<br><strong>Compilador:</strong> SWC</p>
+            </div>
+
+            <div class="feature-card">
+                <h4>📦 Despliegue</h4>
+                <p><strong>CI/CD:</strong> GitHub Actions<br><strong>Contenedores:</strong> Docker<br><strong>Registro:</strong> Docker Hub</p>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>📚 Documentación generada automáticamente | Análisis del proyecto Pollería Gerson</p>
+            <p style="font-size: 0.9em; margin-top: 10px; opacity: 0.7;">Desarrollado por BryanXP27 | 29 de abril de 2026</p>
+        </div>
+    </div>
+
+    <div class="spinner" id="spinner">
+        <p>Generando descarga...</p>
+    </div>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+        mermaid.contentLoaded();
+
+        async function descargarPNG() {
+            showSpinner(true);
+            try {
+                const svgElement = document.querySelector('.mermaid svg');
+                if (!svgElement) {
+                    alert('El diagrama aún no ha sido renderizado. Espera un momento e intenta de nuevo.');
+                    showSpinner(false);
+                    return;
+                }
+
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const svgData = new XMLSerializer().serializeToString(svgElement);
+                const img = new Image();
+
+                img.onload = function() {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0);
+
+                    const link = document.createElement('a');
+                    link.href = canvas.toDataURL('image/png');
+                    link.download = 'Arquitectura-Polleria-Gerson.png';
+                    link.click();
+                    showSpinner(false);
+                };
+
+                img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error al descargar la imagen. Intenta de nuevo.');
+                showSpinner(false);
+            }
+        }
+
+        function descargarSVG() {
+            showSpinner(true);
+            try {
+                const svgElement = document.querySelector('.mermaid svg');
+                if (!svgElement) {
+                    alert('El diagrama aún no ha sido renderizado. Espera un momento e intenta de nuevo.');
+                    showSpinner(false);
+                    return;
+                }
+
+                const svgData = new XMLSerializer().serializeToString(svgElement);
+                const link = document.createElement('a');
+                link.href = 'data:image/svg+xml;base64,' + btoa(svgData);
+                link.download = 'Arquitectura-Polleria-Gerson.svg';
+                link.click();
+                showSpinner(false);
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error al descargar el archivo. Intenta de nuevo.');
+                showSpinner(false);
+            }
+        }
+
+        function ampliarDiagrama() {
+            const container = document.querySelector('.diagram-container');
+            container.style.transform = container.style.transform === 'scale(1.5)' ? 'scale(1)' : 'scale(1.5)';
+        }
+
+        function showSpinner(show) {
+            document.getElementById('spinner').classList.toggle('show', show);
+        }
+
+        // Mostrar alerta de bienvenida
+        window.addEventListener('load', function() {
+            console.log('Diagrama de arquitectura cargado correctamente');
+        });
+    </script>
+</body>
+</html>
