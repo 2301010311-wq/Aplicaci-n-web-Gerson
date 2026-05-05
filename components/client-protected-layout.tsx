@@ -19,22 +19,37 @@ export function ClientProtectedLayout({
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Verificar sesión usando la API
-    fetch("/api/auth/session")
-      .then(res => res.json())
-      .then(data => {
-        if (data.session) {
+    let isMounted = true
+
+    const checkSession = async () => {
+      try {
+        // Verificar sesión usando la API
+        const res = await fetch("/api/auth/session")
+        const data = await res.json()
+
+        if (!isMounted) return
+
+        if (res.ok && data.session) {
           setSession(data.session)
         } else {
           window.location.href = "/login"
         }
-      })
-      .catch(() => {
-        window.location.href = "/login"
-      })
-      .finally(() => {
-        setLoading(false)
-      })
+      } catch {
+        if (isMounted) {
+          window.location.href = "/login"
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false)
+        }
+      }
+    }
+
+    checkSession()
+
+    return () => {
+      isMounted = false
+    }
   }, [])
 
   if (loading) {

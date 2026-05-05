@@ -133,10 +133,24 @@ model pedidos {
   id_mesa            Int
   estado_pedido      String?            @default("En preparacion") @db.VarChar(20)
   observaciones      String?            @db.Text
+  total              Decimal            @default(0) @db.Decimal(10, 2)
+  
+  // Auditoría
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  canceledAt         DateTime?
+  cancelReason       String?            @db.Text
+  
+  // Relaciones
   detallepedido      detallepedido[]
   pedido_delivery    pedidos_delivery?
   mesas              mesas              @relation(fields: [id_mesa], references: [id_mesa], onDelete: NoAction, onUpdate: NoAction)
   usuarios           usuarios           @relation(fields: [id_user], references: [id_user], onDelete: NoAction, onUpdate: NoAction)
+  
+  @@index([fecha_pedido])
+  @@index([estado_pedido])
+  @@index([id_user])
+  @@index([id_mesa])
 }
 
 model productos {
@@ -165,15 +179,27 @@ model usuarios {
 }
 
 model detallepedido {
-  id_detalle      Int       @id @default(autoincrement())
-  id_pedido       Int
-  id_produc       Int?
-  nombre_produc_personalizado String? @db.VarChar(255)
-  cantidad        Int
-  precio_unitario Decimal   @db.Decimal(10, 2)
-  subtotal        Decimal   @db.Decimal(10, 2)
-  pedidos         pedidos   @relation(fields: [id_pedido], references: [id_pedido], onDelete: Cascade, onUpdate: NoAction)
-  productos       productos? @relation(fields: [id_produc], references: [id_produc], onDelete: NoAction, onUpdate: NoAction)
+  id_detalle                  Int       @id @default(autoincrement())
+  id_pedido                   Int
+  id_produc                   Int?
+  nombre_produc_personalizado String?   @db.VarChar(255)
+  cantidad                    Int       @db.SmallInt
+  precio_unitario             Decimal   @db.Decimal(10, 2)
+  subtotal                    Decimal   @db.Decimal(10, 2)
+  notas                       String?   @db.Text
+  estado                      String    @default("Pendiente") @db.VarChar(20)
+  
+  // Auditoría
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+  
+  // Relaciones
+  pedidos                     pedidos   @relation(fields: [id_pedido], references: [id_pedido], onDelete: Cascade, onUpdate: NoAction)
+  productos                   productos? @relation(fields: [id_produc], references: [id_produc], onDelete: SetNull, onUpdate: NoAction)
+  
+  @@index([id_pedido])
+  @@index([id_produc])
+  @@index([estado])
 }
 
 model pedidos_delivery {

@@ -55,14 +55,27 @@ export function PagosTable() {
     try {
       const res = await fetch("/api/pedidos?estado=Servido")
       const data = await res.json()
-      
+
+      if (!res.ok) {
+        console.error("Error cargando pedidos servidos:", data?.error || data)
+        setPedidos([])
+        setFilteredPedidos([])
+        return
+      }
+
       // El API devuelve { pedidos: [], totalPedidosDelDia, fecha } o un array directamente
-      const pedidosData = Array.isArray(data) ? data : data.pedidos || []
-      
+      const pedidosData = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.pedidos)
+          ? data.pedidos
+          : []
+
       setPedidos(pedidosData)
       setFilteredPedidos(pedidosData)
     } catch (error) {
       console.error("Error cargando pedidos servidos:", error)
+      setPedidos([])
+      setFilteredPedidos([])
     } finally {
       setLoading(false)
     }

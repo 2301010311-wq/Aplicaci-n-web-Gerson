@@ -48,37 +48,41 @@ export function CocinaTable() {
   const cargarPedidos = async () => {
     try {
       const res = await fetch("/api/pedidos/cocina")
-      if (res.ok) {
-        const data = await res.json()
-        
-        // Detectar nuevos pedidos
-        let hayNuevosPedidos = false
-        let countNuevos = 0
-        
-        data.forEach((pedido: Pedido) => {
-          if (!pedidosIdsRef.current.has(pedido.id) && pedido.estado === "En preparacion") {
-            hayNuevosPedidos = true
-            countNuevos++
-            playAlarmSound() // Reproducir sonido de alarma
-          }
-          pedidosIdsRef.current.add(pedido.id)
-        })
-        
-        if (hayNuevosPedidos) {
-          addAlert({
-            type: "alarm",
-            title: "¡NUEVO PEDIDO!",
-            message: `${countNuevos} ${countNuevos === 1 ? "nueva orden" : "nuevas órdenes"} en cocina`,
-            duration: 5000,
-          })
-        }
-        
-        setPedidos(data)
-      } else {
+      if (!res.ok) {
         console.error("Error en respuesta de cocina:", res.status)
+        setPedidos([])
+        return
       }
+
+      const payload = await res.json()
+      const data = Array.isArray(payload) ? payload : []
+
+      // Detectar nuevos pedidos
+      let hayNuevosPedidos = false
+      let countNuevos = 0
+
+      data.forEach((pedido: Pedido) => {
+        if (!pedidosIdsRef.current.has(pedido.id) && pedido.estado === "En preparacion") {
+          hayNuevosPedidos = true
+          countNuevos++
+          playAlarmSound() // Reproducir sonido de alarma
+        }
+        pedidosIdsRef.current.add(pedido.id)
+      })
+
+      if (hayNuevosPedidos) {
+        addAlert({
+          type: "alarm",
+          title: "¡NUEVO PEDIDO!",
+          message: `${countNuevos} ${countNuevos === 1 ? "nueva orden" : "nuevas órdenes"} en cocina`,
+          duration: 5000,
+        })
+      }
+
+      setPedidos(data)
     } catch (error) {
       console.error("Error cargando pedidos:", error)
+      setPedidos([])
     } finally {
       setLoading(false)
     }

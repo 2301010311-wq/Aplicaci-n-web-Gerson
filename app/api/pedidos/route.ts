@@ -133,13 +133,43 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Mesa es requerida para pedidos en el restaurante" }, { status: 400 })
     }
 
-    // Validar datos del cliente para delivery y para llevar
-    if (tipoServicio !== "mesa" && clienteInfo) {
-      if (!clienteInfo.numeroTelefono || !clienteInfo.nombreCliente) {
-        return NextResponse.json({ error: "Número de teléfono y nombre del cliente son requeridos" }, { status: 400 })
+    // ✅ VALIDACIONES ROBUSTAS para delivery y llevar
+    if (tipoServicio !== "mesa") {
+      if (!clienteInfo) {
+        return NextResponse.json(
+          { error: "clienteInfo es requerido para delivery/llevar" },
+          { status: 400 }
+        )
       }
-      if (tipoServicio === "delivery" && !clienteInfo.direccion) {
-        return NextResponse.json({ error: "Dirección es requerida para delivery" }, { status: 400 })
+
+      const { numeroTelefono, nombreCliente, direccion } = clienteInfo
+
+      // Validar teléfono: formato internacional o local peruano
+      if (!numeroTelefono || !/^\+?[0-9]{7,15}$/.test(numeroTelefono.replace(/\s/g, ""))) {
+        return NextResponse.json(
+          { 
+            error: "Número de teléfono inválido. Formato: +51 987654321 o 987654321"
+          },
+          { status: 400 }
+        )
+      }
+
+      // Validar nombre del cliente
+      if (!nombreCliente || nombreCliente.trim().length < 2) {
+        return NextResponse.json(
+          { error: "Nombre del cliente debe tener al menos 2 caracteres" },
+          { status: 400 }
+        )
+      }
+
+      // Validar dirección para delivery
+      if (tipoServicio === "delivery") {
+        if (!direccion || direccion.trim().length < 10) {
+          return NextResponse.json(
+            { error: "Dirección debe tener al menos 10 caracteres (ej: Calle Principal 123, Departamento, Referencia)" },
+            { status: 400 }
+          )
+        }
       }
     }
 
@@ -184,99 +214,132 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Crear detalles del pedido
-    for (const d of detalles) {
-      try {
-        // Si es un producto "otro", guardar con nombre personalizado (no tiene stock)
-        if (typeof d.productoId === "string" && d.productoId.startsWith("otro_")) {
-          await prisma.detallepedido.create({
+    // ✅ CREAR DETALLES CON TRANSACCIÓN ATÓMICA (evita race conditions)
+    try {
+      const detallesCreados = await prisma.$transaction(async (tx) => {
+        const detalles_creados = []
+
+        for (const d of detalles) {
+          // Si es un producto "otro", guardar con nombre personalizado (no tiene stock)
+          if (typeof d.productoId === "string" && d.productoId.startsWith("otro_")) {
+            const detalle = await tx.detallepedido.create({
+              data: {
+                id_pedido: pedido.id_pedido,
+                nombre_produc_personalizado: d.nombre,
+                cantidad: d.cantidad,
+                precio_unitario: d.precioUnitario,
+                subtotal: d.cantidad * d.precioUnitario,
+              },
+            })
+            detalles_creados.push(detalle)
+            continue
+          }
+
+          const productoId = parseInt(d.productoId)
+
+          // ✅ 1. LEER CON LOCK (SELECT FOR UPDATE) - Evita race condition
+          const producto = await (tx as any).$queryRaw<Array<any>>`
+            SELECT "id_produc", "stock_produc", "controlar_stock", "nombre_produc", "precio_produc"
+            FROM "productos"
+            WHERE "id_produc" = ${productoId}
+            FOR UPDATE
+          `
+
+          if (!producto || producto.length === 0) {
+            throw new Error(`Producto ${productoId} no existe`)
+          }
+
+          const [prod] = producto
+          const debeControlarStock = prod.controlar_stock === true
+          const stockActual = prod.stock_produc || 0
+
+          // ✅ 2. VALIDAR STOCK ANTES DE DEDUCIR
+          if (debeControlarStock && stockActual < d.cantidad) {
+            throw new Error(
+              `Stock insuficiente para ${prod.nombre_produc}. Disponible: ${stockActual}, Solicitado: ${d.cantidad}`
+            )
+          }
+
+          // ✅ 3. DEDUCIR ATOMICAMENTE (dentro de la transacción)
+          if (debeControlarStock) {
+            await (tx as any).$executeRaw`
+              UPDATE "productos"
+              SET "stock_produc" = "stock_produc" - ${d.cantidad}
+              WHERE "id_produc" = ${productoId}
+            `
+          }
+
+          // ✅ 4. CREAR DETALLE
+          const detalle = await tx.detallepedido.create({
             data: {
               id_pedido: pedido.id_pedido,
-              nombre_produc_personalizado: d.nombre,
+              id_produc: productoId,
               cantidad: d.cantidad,
               precio_unitario: d.precioUnitario,
               subtotal: d.cantidad * d.precioUnitario,
             },
           })
-          continue
+
+          detalles_creados.push(detalle)
         }
-        
-        // Para productos normales, guardar con id_produc y deducir stock si es necesario
-        const productoId = parseInt(d.productoId)
-        
-        // Obtener el producto para verificar si controla stock
-        const producto = await (prisma as any).$queryRaw`SELECT "controlar_stock" FROM "productos" WHERE "id_produc" = ${productoId}`
-        const debeControlarStock = producto && producto.length > 0 && producto[0].controlar_stock === true
-        
-        // Deducir stock del producto solo si controla_stock es true
-        if (debeControlarStock) {
-          await (prisma as any).$executeRaw`
-            UPDATE "productos" 
-            SET "stock_produc" = "stock_produc" - ${d.cantidad} 
-            WHERE "id_produc" = ${productoId} AND "stock_produc" >= ${d.cantidad}
-          `
-        }
-        
-        await prisma.detallepedido.create({
+
+        return detalles_creados
+      })
+
+      // ✅ 5. ACTUALIZAR TOTAL DEL PEDIDO (usar el campo total en caché)
+      const totalReal = detallesCreados.reduce(
+        (sum, d) => sum + parseFloat(d.subtotal.toString()),
+        0
+      )
+
+      await prisma.pedidos.update({
+        where: { id_pedido: pedido.id_pedido },
+        data: { total: totalReal },
+      })
+
+      // Crear registro de delivery/para llevar si es necesario
+      if (tipoServicio !== "mesa" && clienteInfo) {
+        await (prisma as any).pedidos_delivery.create({
           data: {
             id_pedido: pedido.id_pedido,
-            id_produc: productoId,
-            cantidad: d.cantidad,
-            precio_unitario: d.precioUnitario,
-            subtotal: d.cantidad * d.precioUnitario,
+            numero_telefono: clienteInfo.numeroTelefono,
+            nombre_cliente: clienteInfo.nombreCliente,
+            direccion: clienteInfo.direccion || null,
+            notas: clienteInfo.notas || null,
           },
         })
-      } catch (error) {
-        console.error(`Error creando detalle para producto ${d.productoId}:`, error)
-        throw error
       }
-    }
 
-    // Crear registro de delivery/para llevar si es necesario
-    if (tipoServicio !== "mesa" && clienteInfo) {
-      await (prisma as any).pedidos_delivery.create({
-        data: {
-          id_pedido: pedido.id_pedido,
-          numero_telefono: clienteInfo.numeroTelefono,
-          nombre_cliente: clienteInfo.nombreCliente,
-          direccion: clienteInfo.direccion || null,
-          notas: clienteInfo.notas || null,
-        },
+      // Actualizar estado de la mesa solo si es mesa real
+      if (mesaId) {
+        await prisma.mesas.update({
+          where: { id_mesa: parseInt(mesaId) },
+          data: { estado_mesa: "Ocupada" },
+        })
+      }
+
+      return NextResponse.json({
+        id: pedido.id_pedido.toString(),
+        fecha: pedido.fecha_pedido,
+        mesaId: pedido.id_mesa.toString(),
+        tipoServicio: tipoServicio,
+        estado: pedido.estado_pedido,
+        total: totalReal,
       })
+    } catch (error) {
+      console.error(`[PEDIDO ${pedido.id_pedido}] Error en transacción:`, error)
+      
+      // Limpiar el pedido si falló la transacción
+      await prisma.pedidos.delete({
+        where: { id_pedido: pedido.id_pedido },
+      }).catch(() => {})
+
+      const errorMsg = error instanceof Error ? error.message : "Error al crear detalles del pedido"
+      return NextResponse.json(
+        { error: errorMsg },
+        { status: 400 }
+      )
     }
-
-    // Obtener los detalles creados para calcular el total real
-    const detallesCreados = await prisma.detallepedido.findMany({
-      where: { id_pedido: pedido.id_pedido }
-    })
-
-    const totalReal = detallesCreados.reduce((sum, d) => sum + parseFloat(d.subtotal.toString()), 0)
-
-    // Calcular el total del pedido
-    const total = detalles.reduce((sum: number, d: any) => sum + (d.cantidad * d.precioUnitario), 0)
-
-    // Validar que coincidan (si no, hay un error en los detalles)
-    if (Math.abs(total - totalReal) > 0.01) {
-      console.warn(`[PEDIDO ${pedido.id_pedido}] Total esperado: ${total}, Total guardado: ${totalReal}`)
-    }
-
-    // Actualizar estado de la mesa solo si es mesa real
-    if (mesaId) {
-      await prisma.mesas.update({
-        where: { id_mesa: parseInt(mesaId) },
-        data: { estado_mesa: "Ocupada" },
-      })
-    }
-
-    // Retornar pedido con estructura del frontend (usar el total real guardado en BD)
-    return NextResponse.json({
-      id: pedido.id_pedido.toString(),
-      fecha: pedido.fecha_pedido,
-      mesaId: pedido.id_mesa.toString(),
-      tipoServicio: tipoServicio,
-      estado: pedido.estado_pedido,
-      total: totalReal,
-    })
   } catch (error) {
     console.error("Error creando pedido:", error)
     return NextResponse.json({ 

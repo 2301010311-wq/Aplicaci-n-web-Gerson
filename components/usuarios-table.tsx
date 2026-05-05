@@ -39,10 +39,21 @@ export function UsuariosTable() {
     try {
       const res = await fetch("/api/usuarios")
       const data = await res.json()
-      setUsuarios(data)
-      setFilteredUsuarios(data)
+
+      if (!res.ok) {
+        console.error("Error cargando usuarios:", data?.error || data)
+        setUsuarios([])
+        setFilteredUsuarios([])
+        return
+      }
+
+      const usuariosData = Array.isArray(data) ? data : []
+      setUsuarios(usuariosData)
+      setFilteredUsuarios(usuariosData)
     } catch (error) {
       console.error("Error cargando usuarios:", error)
+      setUsuarios([])
+      setFilteredUsuarios([])
     } finally {
       setLoading(false)
     }

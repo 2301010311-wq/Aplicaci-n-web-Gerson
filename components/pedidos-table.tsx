@@ -63,14 +63,29 @@ export function PedidosTable() {
     try {
       const res = await fetch("/api/pedidos")
       const result = await res.json()
-      // Extraer pedidos y total del nuevo formato
-      const pedidosData = result.pedidos || result
-      const total = result.totalPedidosDelDia || 0
+      if (!res.ok) {
+        console.error("Error cargando pedidos:", result?.error || result)
+        setPedidos([])
+        setFilteredPedidos([])
+        setTotalPedidosDelDia(0)
+        return
+      }
+
+      // Extraer pedidos y total del formato de la API, validando que pedidos sea arreglo.
+      const pedidosData = Array.isArray(result?.pedidos)
+        ? result.pedidos
+        : Array.isArray(result)
+          ? result
+          : []
+      const total = typeof result?.totalPedidosDelDia === "number" ? result.totalPedidosDelDia : pedidosData.length
       setPedidos(pedidosData)
       setFilteredPedidos(pedidosData)
       setTotalPedidosDelDia(total)
     } catch (error) {
       console.error("Error cargando pedidos:", error)
+      setPedidos([])
+      setFilteredPedidos([])
+      setTotalPedidosDelDia(0)
     } finally {
       setLoading(false)
     }

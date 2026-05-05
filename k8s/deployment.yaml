@@ -23,6 +23,36 @@ spec:
                 name: app-config
             - secretRef:
                 name: app-secret
+          # Readiness Probe - Verifica que la app esté lista para recibir tráfico
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          # Liveness Probe - Reinicia el pod si la app no responde
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          # Startup Probe - Da más tiempo para el primer arranque
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 30
 ---
 apiVersion: apps/v1
 kind: Deployment

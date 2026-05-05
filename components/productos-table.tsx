@@ -42,10 +42,21 @@ export function ProductosTable() {
     try {
       const res = await fetch("/api/productos")
       const data = await res.json()
-      setProductos(data)
-      setFilteredProductos(data)
+
+      if (!res.ok) {
+        console.error("Error cargando productos:", data?.error || data)
+        setProductos([])
+        setFilteredProductos([])
+        return
+      }
+
+      const productosData = Array.isArray(data) ? data : []
+      setProductos(productosData)
+      setFilteredProductos(productosData)
     } catch (error) {
       console.error("Error cargando productos:", error)
+      setProductos([])
+      setFilteredProductos([])
     } finally {
       setLoading(false)
     }

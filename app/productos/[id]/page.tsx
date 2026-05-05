@@ -28,6 +28,8 @@ export default async function EditarProductoPage({
     categoria: productoRaw.categoria_produc,
     estado: productoRaw.estado_produc === "Activo",
     fechaVencimiento: productoRaw.vencimiento_produc,
+    stock: productoRaw.stock_produc || 0,
+    controlarStock: productoRaw.controlar_stock,
   }
 
   return (

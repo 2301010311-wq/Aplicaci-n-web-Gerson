@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/middleware-auth"
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = await requireAuth(["Admin", "Mesero", "Cajero"])
   if ("error" in auth) {
@@ -12,7 +12,8 @@ export async function GET(
   }
 
   try {
-    const pedidoId = parseInt(params.id)
+    const { id } = await params
+    const pedidoId = parseInt(id)
 
     // Obtener el pedido con información de delivery
     const pedido = await prisma.pedidos.findUnique({

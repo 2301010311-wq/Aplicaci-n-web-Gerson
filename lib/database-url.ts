@@ -28,5 +28,6 @@ export function buildDatabaseUrlFromEnv(): string {
     )
   }
 
-  return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${name}?schema=public`
+  // Type assertion después de validación
+  return `postgresql://${encodeURIComponent(user!)}:${encodeURIComponent(password!)}@${host!}:${port!}/${name!}?schema=public`
 }

@@ -23,6 +23,8 @@ interface Producto {
   nombre: string
   precio: number
   categoria: string
+  stock_produc?: number
+  controlar_stock?: boolean
 }
 
 interface DetalleItem {
@@ -94,7 +96,20 @@ export function NuevoPedidoForm() {
       const producto = productos.find((p) => p.id === value)
       if (producto) {
         nuevosDetalles[index].precio = producto.precio
+        // ✅ Resetear cantidad a 1 cuando cambia producto
+        nuevosDetalles[index].cantidad = 1
       }
+    }
+
+    // ✅ VALIDAR cantidad: debe ser número positivo
+    if (field === "cantidad") {
+      let cantidad = value
+      if (isNaN(cantidad)) {
+        cantidad = 1
+      } else {
+        cantidad = Math.max(1, Math.floor(cantidad))
+      }
+      nuevosDetalles[index].cantidad = cantidad
     }
 
     setDetalles(nuevosDetalles)
@@ -376,12 +391,36 @@ export function NuevoPedidoForm() {
                       </div>
 
                       <div>
-                        <Label className="text-[#C9A227] text-xs font-semibold">Cantidad</Label>
+                        <Label className="text-[#C9A227] text-xs font-semibold">
+                          Cantidad
+                          {(() => {
+                            const producto = productos.find(p => p.id === detalle.productoId)
+                            if (producto?.controlar_stock) {
+                              return <span className="text-[#EAEAEA] ml-1">(Disp: {producto.stock_produc || 0})</span>
+                            }
+                            return null
+                          })()}
+                        </Label>
                         <Input
                           type="number"
                           min="1"
+                          max={(() => {
+                            const producto = productos.find(p => p.id === detalle.productoId)
+                            return producto?.controlar_stock ? (producto.stock_produc || 1) : 999
+                          })()}
                           value={detalle.cantidad}
-                          onChange={(e) => actualizarDetalle(index, "cantidad", Number.parseInt(e.target.value))}
+                          onChange={(e) => {
+                            let valor = parseInt(e.target.value) || 1
+                            valor = Math.max(1, valor)
+                            
+                            // Validar contra stock disponible
+                            const producto = productos.find(p => p.id === detalle.productoId)
+                            if (producto?.controlar_stock && valor > (producto.stock_produc || 0)) {
+                              valor = producto.stock_produc || 1
+                            }
+                            
+                            actualizarDetalle(index, "cantidad", valor)
+                          }}
                           className="bg-[#2F2F2F] border-[#C9A227] text-[#EAEAEA] text-sm h-9"
                         />
                       </div>

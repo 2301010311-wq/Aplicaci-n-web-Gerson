@@ -31,6 +31,15 @@ export {
   DialogTrigger,
 } from './overlays'
 
+// Re-export from sheets
+export {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from './sheet'
+
 // Re-export from tables
 export {
   Table,

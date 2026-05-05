@@ -127,26 +127,29 @@ async function main() {
   
   if (existingProductos.length === 0) {
     const productos = [
-      { nombre: "Pollo a la Brasa", precio: 25.00, categoria: "Platos" },
-      { nombre: "Medio Pollo", precio: 18.00, categoria: "Platos" },
-      { nombre: "Cuarto de Pollo", precio: 12.00, categoria: "Platos" },
-      { nombre: "Arroz con Pollo", precio: 20.00, categoria: "Platos" },
-      { nombre: "Papas Fritas", precio: 8.00, categoria: "Acompañamientos" },
-      { nombre: "Ensalada", precio: 10.00, categoria: "Acompañamientos" },
-      { nombre: "Gaseosa Pequeña", precio: 3.00, categoria: "Bebidas" },
-      { nombre: "Gaseosa Grande", precio: 5.00, categoria: "Bebidas" },
-      { nombre: "Agua", precio: 2.00, categoria: "Bebidas" },
-      { nombre: "Cerveza", precio: 8.00, categoria: "Bebidas" },
+      { nombre: "Pollo a la Brasa", precio: 25.00, categoria: "Platos", diasVencimiento: 30 },
+      { nombre: "Medio Pollo", precio: 18.00, categoria: "Platos", diasVencimiento: 30 },
+      { nombre: "Cuarto de Pollo", precio: 12.00, categoria: "Platos", diasVencimiento: 30 },
+      { nombre: "Arroz con Pollo", precio: 20.00, categoria: "Platos", diasVencimiento: 30 },
+      { nombre: "Papas Fritas", precio: 8.00, categoria: "Acompañamientos", diasVencimiento: 7 },
+      { nombre: "Ensalada", precio: 10.00, categoria: "Acompañamientos", diasVencimiento: 3 },
+      { nombre: "Gaseosa Pequeña", precio: 3.00, categoria: "Bebidas", diasVencimiento: 365 },
+      { nombre: "Gaseosa Grande", precio: 5.00, categoria: "Bebidas", diasVencimiento: 365 },
+      { nombre: "Agua", precio: 2.00, categoria: "Bebidas", diasVencimiento: 365 },
+      { nombre: "Cerveza", precio: 8.00, categoria: "Bebidas", diasVencimiento: 180 },
     ]
 
     for (const producto of productos) {
+      const vencimiento = new Date()
+      vencimiento.setDate(vencimiento.getDate() + producto.diasVencimiento)
+      
       await (prisma as any).productos.create({
         data: {
           nombre_produc: producto.nombre,
           precio_produc: producto.precio,
           categoria_produc: producto.categoria,
           estado_produc: "Activo",
-          vencimiento_produc: new Date("2025-12-31"),
+          vencimiento_produc: vencimiento,
         },
       })
     }
