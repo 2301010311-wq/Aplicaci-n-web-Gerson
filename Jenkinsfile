@@ -13,10 +13,10 @@ pipeline {
         script {
           if (isUnix()) {
             sh "node --version && npm --version"
-            sh "npm ci"
+            sh "npm install"
           } else {
             bat "node --version && npm --version"
-            bat "npm ci"
+            bat "npm install"
           }
         }
       }
