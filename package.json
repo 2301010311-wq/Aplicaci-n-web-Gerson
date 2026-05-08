@@ -63,6 +63,7 @@
     "@types/react": "19.2.0",
     "@types/react-dom": "19.2.0",
     "dotenv-cli": "^10.0.0",
+    "eslint": "^9.39.4",
     "jest": "^30.3.0",
     "pnpm": "^10.33.1",
     "postcss": "8.5.6",
