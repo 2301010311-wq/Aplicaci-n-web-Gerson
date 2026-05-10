@@ -1,0 +1,42 @@
+name: Vercel Continuous Delivery
+
+on:
+  push:
+    branches:
+      - main # Se ejecutará automáticamente cuando haya cambios en la rama main
+
+jobs:
+  Deploy-to-Vercel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código del repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar dependencias
+        run: npm install
+
+      # Opcional: Generar Prisma si la app lo requiere durante el build
+      - name: Prisma Generate
+        run: npx prisma generate
+
+      - name: Desplegar a Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          # Usamos un Database URL de prueba para evitar errores de Prisma en el build
+          DATABASE_URL: "postgresql://build:build@127.0.0.1:5432/build?schema=public"
+        run: |
+          echo "📥 Vinculando con Vercel..."
+          npx vercel pull --yes --environment=production --token=$VERCEL_TOKEN
+          
+          echo "🏗️ Construyendo la aplicación Next.js..."
+          npx vercel build --prod --token=$VERCEL_TOKEN
+          
+          echo "🚀 Desplegando en la nube..."
+          npx vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
