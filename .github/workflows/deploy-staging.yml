@@ -1,55 +1,169 @@
+# ========================================================================================
+# 🚀 WORKFLOW: Deploy AUTOMÁTICO a Staging (Etapa 2 del CD)
+# ========================================================================================
+# Este workflow despliega automáticamente la nueva imagen Docker a Kubernetes Staging.
+# Se dispara DESPUÉS de que el workflow "Docker" completa exitosamente.
+#
+# FLUJO:
+#   1. Espera a que docker-publish.yml termine correctamente
+#   2. Verifica que el cambio viene de rama 'main'
+#   3. Obtiene el kubectl configurado para acceder al cluster K8s
+#   4. Actualiza el deployment de K8s con la nueva imagen
+#   5. Espera a que el rollout se complete (despliegue sin downtime)
+#   6. Realiza smoke test a /api/health para verificar que todo funciona
+#
+# RESULTADO: La nueva versión está disponible en ambiente staging para testing
+# ========================================================================================
 name: Deploy Staging
 
+# ========== DISPARADORES DEL WORKFLOW ==========
 on:
   workflow_run:
-    workflows: ["Docker"]
-    types: [completed]
+    # Se dispara al FINALIZAR otro workflow (el especificado abajo)
+    workflows: ["Docker"]  # Depende de: docker-publish.yml
+    types: [completed]     # Se activa cuando Docker workflow termina (exitoso O fallido)
 
 env:
+  # ========== VARIABLES GLOBALES ==========
+  # Registro donde se encuentra la imagen Docker
   REGISTRY: ghcr.io
+  
+  # Nombre completo de la imagen: owner/repo
   IMAGE_NAME: ${{ github.repository }}
+  
+  # Namespace de Kubernetes donde deployar
   K8S_NAMESPACE: default
+  
+  # Nombre del deployment a actualizar en K8s
   K8S_DEPLOYMENT: backend
+  
+  # Contenedor dentro del deployment que actualizar
   K8S_CONTAINER: backend
+  
+  # URL para validación de salud (smoke test)
+  # Ej: https://staging.polleria.com/api/health
   HEALTHCHECK_URL: ${{ vars.STAGING_HEALTHCHECK_URL }}
 
 jobs:
+  # ========== JOB PRINCIPAL: DEPLOY ==========
   deploy:
     name: Deploy to Staging
+    
+    # CONDICIÓN: Solo ejecutar si se cumplen AMBAS:
+    # 1. El workflow "Docker" finalizó exitosamente (success)
+    # 2. El cambio viene de la rama 'main' (no de feature branches)
     if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    
     runs-on: ubuntu-latest
+    
+    # Ambiente de GitHub con configuración y secretos para 'staging'
+    # Permite restringir qué secretos se usan en cada ambiente
     environment: staging
+    
+    # Permisos necesarios
     permissions:
-      contents: read
-      packages: read
+      contents: read    # Leer código del repo
+      packages: read    # Leer imágenes del registro
 
+    # ========== PASOS DEL JOB ==========
     steps:
+      # ✅ PASO 1: Descargar código fuente (para referencia, aunque no lo modifiquemos)
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      # ✅ PASO 2: Instalar kubectl (herramienta para controlar Kubernetes)
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
         with:
-          version: "v1.30.0"
+          version: "v1.30.0"  # Versión específica de kubectl (debe coincidir con K8s cluster)
+        # kubectl = Cliente CLI para comunicarse con el cluster Kubernetes
 
+      # ✅ PASO 3: Configurar acceso al cluster Kubernetes
       - name: Configure kubeconfig
         shell: bash
         run: |
+          # Crear directorio de configuración de kubectl
           mkdir -p "$HOME/.kube"
+          
+          # Decodificar kubeconfig desde secrets y guardarlo
+          # KUBE_CONFIG = archivo codificado en base64 con credenciales del cluster
+          # Contiene: certificados, tokens, URLs del API server, etc.
           echo "${{ secrets.KUBE_CONFIG }}" | base64 --decode > "$HOME/.kube/config"
+          
+          # Resultado: kubectl está autenticado y puede comunicarse con el cluster staging
 
+      # ✅ PASO 4: Construir referencia a la imagen Docker
+      # Usa el SHA del commit para identificar exactamente qué imagen deployar
       - name: Build image reference from commit SHA
-        id: image
-        run: echo "ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+        id: image  # Outputs: ref (disponible en pasos posteriores)
+        run: |
+          # Construir la ruta completa de la imagen
+          # Ej: ghcr.io/myaccount/polleria:sha-a1b2c3d4ef5678...
+          echo "ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          # head_sha = commit SHA que disparó el workflow Docker
 
+      # ✅ PASO 5: ACTUALIZAR el deployment de Kubernetes con la nueva imagen
+      # Este es el paso CRÍTICO que causa el deploy
       - name: Set image in Kubernetes deployment
         run: |
+          # Ejecutar comando kubectl:
+          # kubectl set image deployment/<deployment> <container>=<image>
+          # Actualiza el deployment indicando la nueva imagen a usar
           kubectl -n "${{ env.K8S_NAMESPACE }}" set image deployment/${{ env.K8S_DEPLOYMENT }} \
             ${{ env.K8S_CONTAINER }}=${{ steps.image.outputs.ref }}
+          
+          # Ejemplo real:
+          # kubectl -n default set image deployment/backend backend=ghcr.io/myaccount/polleria:sha-a1b2c3d4
+          # 
+          # QUÉ HACE:
+          # 1. Kubernetes lee el nuevo specification del deployment
+          # 2. Compara: imagen vieja != imagen nueva → necesita update
+          # 3. Inicia un "rollout" (despliegue gradual)
+          # 4. Crea nuevos pods con la imagen nueva
+          # 5. Espera a que pasen health checks
+          # 6. Redirige tráfico gradualmente (rolling update)
+          # 7. Elimina pods viejos
+          # BENEFICIO: Sin downtime, los usuarios siguen usando la app
 
+      # ✅ PASO 6: ESPERAR a que el rollout se complete
       - name: Wait for rollout
-        run: kubectl -n "${{ env.K8S_NAMESPACE }}" rollout status deployment/${{ env.K8S_DEPLOYMENT }} --timeout=180s
+        run: |
+          # Esperar hasta que el deployment esté completamente actualizado
+          # Timeout de 180 segundos = 3 minutos máximo para deployar
+          kubectl -n "${{ env.K8S_NAMESPACE }}" rollout status deployment/${{ env.K8S_DEPLOYMENT }} --timeout=180s
+          
+          # Verificaciones que realiza kubernetes:
+          # - Todos los pods viejos terminaron
+          # - Todos los pods nuevos están READY
+          # - Despliegue exitoso sin excepciones
+          # 
+          # Si no se completa en 180s:
+          #   - Este paso falla
+          #   - El workflow entero falla
+          #   - Alertas/notificaciones se disparan
+          #   - El desarrollador debe intervenir
 
+      # ✅ PASO 7: SMOKE TEST - Validación rápida que todo funciona
       - name: Smoke test
         if: ${{ env.HEALTHCHECK_URL != '' }}
-        run: curl --fail --silent --show-error "${{ env.HEALTHCHECK_URL }}"
+        # Solo ejecutar si existe URL de health check configurada
+        run: |
+          # Hacer request HTTP a /api/health del staging recientemente deployado
+          curl --fail --silent --show-error "${{ env.HEALTHCHECK_URL }}"
+          
+          # Flags:
+          # --fail: Retornar exit code 1 si HTTP status es 4xx/5xx
+          # --silent: No mostrar barra de progreso
+          # --show-error: Mostrar errores si hay
+          # 
+          # Esperado (200 OK):
+          # {
+          #   "status": "healthy",
+          #   "database": "connected",
+          #   "uptime": 42
+          # }
+          # 
+          # Si falla este smoke test:
+          #   - El workflow falla
+          #   - Alerta que el deployment tiene problemas
+          #   - NO se procede a enviar a producción

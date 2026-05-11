@@ -1,104 +1,164 @@
+# ========================================================================================
+# 🐳 WORKFLOW: Build y Push de Imagen Docker (Etapa 1 del CD)
+# ========================================================================================
+# Este workflow construye la imagen Docker y la sube al registro de contenedores (ghcr.io)
+# Es el PRIMER paso del pipeline de entrega continua.
+#
+# FLUJO:
+#   1. Se dispara en push a 'main', en PRs, y diariamente
+#   2. Construye imagen Docker usando el Dockerfile (multistage build)
+#   3. Push a GitHub Container Registry (ghcr.io)
+#   4. Genera tags automáticos basados en commit SHA
+#   5. Firma la imagen digitalmente con cosign (seguridad)
+# 
+# RESULTADO: Una imagen Docker disponible para deploy a staging/producción
+# ========================================================================================
 name: Docker
 
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
 on:
+  # ========== DISPARADORES DEL WORKFLOW ==========
   schedule:
+    # Se ejecuta diariamente a las 11:16 UTC (verifica cambios de dependencias)
     - cron: '16 11 * * *'
+  
   push:
+    # Se ejecuta cuando se hace push a la rama 'main'
     branches: [ "main" ]
-    # Publish semver tags as releases.
+    # También en tags semánticos (v1.0.0, v2.1.3, etc.) para releases
     tags: [ 'v*.*.*' ]
+  
   pull_request:
+    # Se ejecuta en PRs hacia 'main' (build de validación, sin push a registry)
     branches: [ "main" ]
 
 env:
-  # Use docker.io for Docker Hub if empty
+  # ========== VARIABLES GLOBALES DEL WORKFLOW ==========
+  # Registro de contenedores donde se suben las imágenes
+  # (ghcr.io = GitHub Container Registry, alternativa: docker.io para Docker Hub)
   REGISTRY: ghcr.io
-  # github.repository as <account>/<repo>
+  
+  # Nombre de la imagen completo: <propietario>/<repositorio>
+  # Ej: myaccount/polleria-gerson
   IMAGE_NAME: ${{ github.repository }}
-  # Adelanta la migracion para detectar incompatibilidades desde ahora
+  
+  # Fuerza que las GitHub Actions usen Node 24 (compatibilidad futura)
+  # Evita problemas de deprecación de Node 20
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 
+# ========================================================================================
 jobs:
+  # ========== JOB PRINCIPAL: BUILD Y PUSH ==========
   build:
-
+    # Se ejecuta en máquina Ubuntu con Docker preinstalado
     runs-on: ubuntu-latest
+    
+    # Permisos necesarios para este job
     permissions:
-      contents: read
-      packages: write
-      # This is used to complete the identity challenge
-      # with sigstore/fulcio when running outside of PRs.
-      id-token: write
+      contents: read              # Leer código del repositorio
+      packages: write             # Escribir en GitHub Container Registry
+      id-token: write             # Requerido para firmar con cosign (identidad OIDC)
 
+    # ========== PASOS DEL JOB ==========
     steps:
+      # ✅ PASO 1: Descargar código fuente
       - name: Checkout repository
         uses: actions/checkout@v5
+        # Clona el repositorio en el workspace del runner
+        # Permite acceder al Dockerfile y otros archivos
 
-      # Install the cosign tool except on PR
-      # https://github.com/sigstore/cosign-installer
+      # ✅ PASO 2: Instalar herramienta de firma digital (cosign)
+      # Se omite en PRs porque no se suben imágenes
       - name: Install cosign
         if: github.event_name != 'pull_request'
-        uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 #v3.5.0
+        # Skip en PRs: No es necesario firmar imágenes que no se publican
+        uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20
         with:
           cosign-release: 'v2.2.4'
+        # cosign = Herramienta para firmar y verificar imágenes Docker
+        # Garantiza que la imagen no ha sido modificada (seguridad supply-chain)
 
-      # Set up BuildKit Docker container builder to be able to build
-      # multi-platform images and export cache
-      # https://github.com/docker/setup-buildx-action
+      # ✅ PASO 3: Preparar Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        # Buildx permite:
+        #   - Buildkit: Caché mejorado, build más rápido
+        #   - Multi-plataforma: Compilar para ARM64, x86-64, etc.
+        #   - Exportar caché a GitHub Actions para builds futuras
 
-      # Login against a Docker registry except on PR
-      # https://github.com/docker/login-action
+      # ✅ PASO 4: Autenticarse en GitHub Container Registry
+      # Se omite en PRs porque no suben a registry
       - name: Log into registry ${{ env.REGISTRY }}
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+        # Skip en PRs: Solo se autentica para push a registro
+        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ${{ env.REGISTRY }}        # ghcr.io
+          username: ${{ github.actor }}        # Usuario de GitHub que hace el push
+          password: ${{ secrets.GITHUB_TOKEN }} # Token automático de GitHub (con permisos de packages)
 
-      # Extract metadata (tags, labels) for Docker
-      # https://github.com/docker/metadata-action
+      # ✅ PASO 5: Generar metadatos y tags para la imagen
       - name: Extract Docker metadata
-        id: meta
+        id: meta  # Outputs disponibles en pasos posteriores como ${{ steps.meta.outputs.tags }}
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Ejemplo de output: ghcr.io/myaccount/polleria-gerson
+          
           tags: |
+            # Tag 1: Basado en commit SHA (ej: sha-a1b2c3d4)
+            # Permite identificar exactamente qué versión del código está en cada imagen
             type=sha,prefix=sha-
+            
+            # Tag 2: Basado en tag de git (ej: v1.0.0 → v1.0.0)
+            # Usado para releases oficiales
             type=ref,event=tag
+            
+            # Tag 3: 'latest' solo si es rama por defecto (main)
+            # latest = la versión más reciente disponible
             type=raw,value=latest,enable={{is_default_branch}}
 
-      # Build and push Docker image with Buildx (don't push on PR)
-      # https://github.com/docker/build-push-action
+      # ✅ PASO 6: CONSTRUIR y SUBIR imagen Docker (paso crítico)
       - name: Build and push Docker image
-        id: build-and-push
+        id: build-and-push  # Outputs: digest, metadata
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: .                                  # Ruta del Dockerfile (raíz del repo)
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          # push=true: En main, scheduled, tags → SUBE a ghcr.io
+          # push=false: En PRs → Solo valida que se compila, no sube
+          
+          tags: ${{ steps.meta.outputs.tags }}       # Tags generados en PASO 5
+          labels: ${{ steps.meta.outputs.labels }}   # Metadatos (fecha, versión, etc)
+          
+          # OPTIMIZACIONES DE BUILD:
           cache-from: type=gha
+          # Reutiliza caché de builds anteriores (GitHub Actions cache)
+          # Reduce tiempo de build desde ~5min a ~1min
+          
           cache-to: type=gha,mode=max
+          # Guarda capas de build en caché para futuras builds
+          # mode=max: Cachea todas las capas (más espacio, builds más rápidos)
 
-      # Sign the resulting Docker image digest except on PRs.
-      # This will only write to the public Rekor transparency log when the Docker
-      # repository is public to avoid leaking data.  If you would like to publish
-      # transparency data even for private images, pass --force to cosign below.
-      # https://github.com/sigstore/cosign
+      # ✅ PASO 7: FIRMAR digitalmente la imagen Docker (seguridad supply-chain)
+      # Se omite en PRs para no ralentizar validaciones
       - name: Sign the published Docker image
         if: ${{ github.event_name != 'pull_request' }}
+        # Skip en PRs: Solo necesario para imágenes publicadas
+        
         env:
-          # https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-an-intermediate-environment-variable
+          # Tags de la imagen (ej: ghcr.io/account/polleria:sha-a1b2c3d4)
           TAGS: ${{ steps.meta.outputs.tags }}
+          
+          # Digest único de la imagen (hash SHA256)
+          # Identifica la imagen de forma inmutable
           DIGEST: ${{ steps.build-and-push.outputs.digest }}
-        # This step uses the identity token to provision an ephemeral certificate
-        # against the sigstore community Fulcio instance.
+        
         run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+        # Firma:
+        #   1. Obtiene certificado de Fulcio (OpenSSF)
+        #   2. Crea firma digital criptográfica
+        #   3. Publica en Rekor (ledger público de transparencia)
+        # Beneficio: Otros pueden verificar que la imagen viene de esta CI/CD
+        #           y no ha sido modificada después de publicarse
+        # Nota: Requiere permisos OIDC (id-token: write)
