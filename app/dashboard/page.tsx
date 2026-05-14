@@ -1,5 +1,6 @@
 ﻿"use client"
 import { useState, useEffect } from "react"
+import Link from "next/link"
 import { ClientProtectedLayout } from "@/components/client-protected-layout"
 
 export default function DashboardPage() {
@@ -94,30 +95,30 @@ export default function DashboardPage() {
         <div className="bg-[#2F2F2F] p-6 rounded-lg">
           <h2 className="text-xl font-semibold text-[#EAEAEA] mb-4">Acciones Rapidas</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <a 
-              href="/pedidos/nuevo" 
+            <Link
+              href="/pedidos/nuevo"
               className="bg-[#C9A227] hover:bg-[#a88820] text-[#1C1C1C] p-4 rounded-lg text-center font-semibold transition-colors"
             >
                Nuevo Pedido
-            </a>
-            <a 
-              href="/productos" 
+            </Link>
+            <Link
+              href="/productos"
               className="bg-[#1C1C1C] hover:bg-[#333] text-[#EAEAEA] p-4 rounded-lg text-center font-semibold border border-[#C9A227] transition-colors"
             >
                Ver Productos
-            </a>
-            <a 
-              href="/mesas" 
+            </Link>
+            <Link
+              href="/mesas"
               className="bg-[#1C1C1C] hover:bg-[#333] text-[#EAEAEA] p-4 rounded-lg text-center font-semibold border border-[#C9A227] transition-colors"
             >
                Ver Mesas
-            </a>
-            <a 
-              href="/insumos" 
+            </Link>
+            <Link
+              href="/insumos"
               className="bg-[#1C1C1C] hover:bg-[#333] text-[#EAEAEA] p-4 rounded-lg text-center font-semibold border border-[#C9A227] transition-colors"
             >
                Ver Insumos
-            </a>
+            </Link>
           </div>
         </div>
       </div>
