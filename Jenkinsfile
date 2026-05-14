@@ -13,10 +13,10 @@ pipeline {
         script {
           if (isUnix()) {
             sh "node --version && npm --version"
-            sh "npm install"
+            sh fileExists('package-lock.json') ? "npm ci" : "npm install"
           } else {
             bat "node --version && npm --version"
-            bat "npm install"
+            bat script: fileExists('package-lock.json') ? "npm ci" : "npm install"
           }
         }
       }
@@ -41,6 +41,30 @@ pipeline {
             sh "npm run build"
           } else {
             bat "npm run build"
+          }
+        }
+      }
+    }
+
+    stage("Lint") {
+      steps {
+        script {
+          if (isUnix()) {
+            sh "npm run lint"
+          } else {
+            bat "npm run lint"
+          }
+        }
+      }
+    }
+
+    stage("Security Audit") {
+      steps {
+        script {
+          if (isUnix()) {
+            sh "npm audit --audit-level=high"
+          } else {
+            bat "npm audit --audit-level=high"
           }
         }
       }
@@ -71,18 +95,11 @@ pipeline {
           } else {
             echo "No npm test script in package.json — skipping unit tests."
           }
-
-          if (isUnix()) {
-            sh(script: "npm run lint", returnStatus: true)
-          } else {
-            bat(script: "npm run lint", returnStatus: true)
-          }
-          echo "Lint completed (warnings ignored for now)"
         }
       }
     }
 
-    stage("Deploy") {
+    stage("Release") {
       steps {
         script {
           def info = """build=${env.BUILD_NUMBER}
@@ -91,8 +108,9 @@ node=${env.NODE_NAME}
 timestamp=${new Date()}
 """
           writeFile file: "jenkins-build-info.txt", text: info
-          archiveArtifacts artifacts: "jenkins-build-info.txt", onlyIfSuccessful: true, fingerprint: true
-          echo "Build artifact archived: jenkins-build-info.txt (download from Jenkins job page)."
+          writeFile file: "release/release-ready.txt", text: "Entrega continua lista: build ${env.BUILD_NUMBER}"
+          archiveArtifacts artifacts: "jenkins-build-info.txt, release/**", onlyIfSuccessful: true, fingerprint: true
+          echo "Artefactos de entrega continua archivados: jenkins-build-info.txt y release/release-ready.txt."
         }
       }
     }
