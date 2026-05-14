@@ -1,64 +1,169 @@
+# ========================================================================================
+# 🚀 DEPLOYMENT DE KUBERNETES: Backend de Pollería Gerson
+# ========================================================================================
+# Este archivo define cómo Kubernetes debe desplegar y mantener la aplicación backend.
+# Controla el Rolling Update, health checks, y orquestación de contenedores.
+#
+# CONCEPTOS CLAVE:
+#   - Deployment: Especificación de cómo debe correr la app
+#   - Pod: Contenedor en ejecución (puede haber múltiples)
+#   - ReplicaSet: Asegura que haya N pods en ejecución siempre
+#   - Rolling Update: Método de despliegue sin downtime
+# ========================================================================================
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
 spec:
+  # ========== CONFIGURACIÓN DE RÉPLICAS ==========
+  # Define cuántas instancias de la app deben correr simultáneamente
   replicas: 1
+  # ⚠️  NOTA IMPORTANTE PARA PRODUCCIÓN:
+  #     Con 1 réplica: Hay 1 breve momento sin tráfico durante el update
+  #     Con 3+ réplicas: Rolling update es completamente sin downtime
+  #
+  # RECOMENDACIÓN: Cambiar a 3 para producción real
+  #     replicas: 3
+
+  # ========== SELECTOR: Identifica qué pods controla este Deployment ==========
+  # Kubernetes usa estas etiquetas para encontrar los pods que le pertenecen
   selector:
     matchLabels:
       app: backend
+  # El deployment SOLO maneja pods con label "app: backend"
+  # Cualquier pod con este label será incluido en el despliegue
+
+  # ========== TEMPLATE: Especificación de los pods que crear ==========
+  # Define cómo lucen los pods que este deployment crea
   template:
+    # Metadatos del pod: Aquí se asignan las etiquetas
     metadata:
       labels:
+        # Etiqueta que el selector busca
+        # Cuando K8s busca "app: backend", encuentra estos pods
         app: backend
+
+    # Especificación del contenedor dentro del pod
     spec:
       containers:
+        # ========== CONTENEDOR BACKEND ==========
         - name: backend
+          # Imagen Docker a usar (desde registry de contenedores)
           image: polleria-gerson:latest
+          # POLÍTICA DE ACTUALIZACIÓN DE IMAGEN:
+          # - IfNotPresent: Solo descargar si no existe localmente
+          # - Always: Descargar siempre (más lento, pero garantiza versión actual)
           imagePullPolicy: IfNotPresent
+
+          # Puertos que expone el contenedor
           ports:
-            - containerPort: 3000
+            - containerPort: 3000  # App escucha en puerto 3000 internamente
+
+          # ========== VARIABLES DE ENTORNO ==========
+          # Inyecta configuración desde ConfigMaps y Secrets
           envFrom:
+            # ConfigMap: Configuración no sensible (pueden estar en control de versiones)
             - configMapRef:
                 name: app-config
+            # Secret: Datos sensibles (contraseñas, tokens, URLs de BD)
             - secretRef:
                 name: app-secret
+
+          # ========================================================================================
+          # 🏥 HEALTH CHECKS: Sistema de verificación de salud de la app
+          # ========================================================================================
+          # Kubernetes usa estos 3 tipos de probes para monitorear y gestionar pods:
+          #
+          # 1. STARTUP PROBE: ¿La app está iniciando correctamente?
+          #    - Se ejecuta SOLO al inicio del pod
+          #    - Intenta 30 veces cada 10 segundos = 5 minutos máximo
+          #    - Si falla 30 veces: Kubernetes reinicia el pod
+          #    - Previene que K8s mate pods que aún están arrancando
+          #
+          # 2. READINESS PROBE: ¿La app está lista para recibir tráfico?
+          #    - Se ejecuta continuamente (cada 10 segundos)
+          #    - Si falla: K8s quita el pod del load balancer (no recibe tráfico)
+          #    - Si pasa: K8s agrega el pod al load balancer (recibe tráfico)
+          #    - Crítico durante Rolling Update: Si readiness falla, no se envía tráfico al nuevo pod
+          #
+          # 3. LIVENESS PROBE: ¿La app sigue funcionando o se quedó "congelada"?
+          #    - Se ejecuta continuamente (cada 30 segundos)
+          #    - Si falla 3 veces: Kubernetes REINICIA el pod (lo mata y crea uno nuevo)
+          #    - Útil para recuperarse de deadlocks o memory leaks
+          #
+          # ========================================================================================
+          
           # Readiness Probe - Verifica que la app esté lista para recibir tráfico
           readinessProbe:
             httpGet:
+              # Endpoint de salud que implementamos en la app
               path: /api/health
               port: 3000
+            # Espera 30 segundos antes del primer chequeo
+            # (da tiempo a la app para iniciar completamente)
             initialDelaySeconds: 30
+            # Verifica cada 10 segundos
             periodSeconds: 10
+            # Máximo 5 segundos para que responda el endpoint
             timeoutSeconds: 5
+            # Necesita 1 respuesta exitosa para pasar
             successThreshold: 1
+            # Si falla 3 veces seguidas: Pod no está ready
             failureThreshold: 3
+          
           # Liveness Probe - Reinicia el pod si la app no responde
           livenessProbe:
             httpGet:
               path: /api/health
               port: 3000
+            # Espera 60 segundos antes del primer chequeo
+            # (más tolerancia que readiness, ya que startup probe lo cubre)
             initialDelaySeconds: 60
+            # Verifica cada 30 segundos
             periodSeconds: 30
+            # Máximo 10 segundos para responder
             timeoutSeconds: 10
+            # Necesita 1 respuesta exitosa para considerarse "vivo"
             successThreshold: 1
+            # Si falla 3 veces: Kubernetes REINICIA el pod
             failureThreshold: 3
+          
           # Startup Probe - Da más tiempo para el primer arranque
           startupProbe:
             httpGet:
               path: /api/health
               port: 3000
+            # Comienza a chequear inmediatamente
             initialDelaySeconds: 10
+            # Intenta cada 10 segundos
             periodSeconds: 10
+            # Máximo 5 segundos por intento
             timeoutSeconds: 5
+            # Necesita 1 respuesta exitosa
             successThreshold: 1
+            # Permite 30 intentos = 5 minutos para iniciar
+            # Si no arranca en 5 minutos: Kubernetes reinicia
             failureThreshold: 30
+
 ---
+
+# ========================================================================================
+# 🗄️  DEPLOYMENT DE POSTGRESQL: Base de Datos
+# ========================================================================================
+# Deployment separado para la base de datos PostgreSQL.
+# En producción REAL, esto debería ser:
+#   - Un servicio managed (AWS RDS, Azure Database, etc.)
+#   - Una StatefulSet de Kubernetes (no un Deployment)
+# ========================================================================================
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: postgres
 spec:
+  # 1 sola réplica de la BD (no escalable)
+  # Si falla, el deployment crea uno nuevo automáticamente
   replicas: 1
   selector:
     matchLabels:
@@ -70,28 +175,50 @@ spec:
     spec:
       containers:
         - name: postgres
+          # Imagen oficial de PostgreSQL (versión 16 Alpine = pequeña y eficiente)
           image: postgres:16-alpine
           ports:
+            # PostgreSQL escucha en puerto 5432 por defecto
             - containerPort: 5432
+
+          # ========== VARIABLES DE ENTORNO ==========
+          # PostgreSQL se configura mediante variables de entorno
           env:
+            # Nombre de la base de datos a crear
             - name: POSTGRES_DB
               valueFrom:
+                # Lee desde ConfigMap (no es secreto, puede estar versionado)
                 configMapKeyRef:
                   name: app-config
                   key: DB_NAME
+            
+            # Usuario de PostgreSQL
             - name: POSTGRES_USER
               valueFrom:
+                # Lee desde Secret (es secreto, no debe estar en git)
                 secretKeyRef:
                   name: app-secret
                   key: DB_USER
+            
+            # Contraseña de PostgreSQL (SENSIBLE)
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: app-secret
                   key: DB_PASSWORD
+
+          # ========== VOLUMES: Almacenamiento persistente ==========
           volumeMounts:
+            # Montar el volumen 'postgres-storage' en la ruta de datos de PostgreSQL
+            # Sin esto, los datos se perderían cuando el pod se reinicia
             - name: postgres-storage
               mountPath: /var/lib/postgresql/data
+
+      # ========== DEFINICIÓN DE VOLÚMENES ==========
+      # Define dónde guardar los datos persistentes
       volumes:
+        # Nombre del volumen referenciado arriba
         - name: postgres-storage
+          # EmptyDir: Espacio temporal del nodo (se borra si el pod muere)
+          # ⚠️  EN PRODUCCIÓN: Cambiar a persistentVolumeClaim o hostPath
           emptyDir: {}
