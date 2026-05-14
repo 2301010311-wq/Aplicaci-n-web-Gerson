@@ -9,7 +9,7 @@ Este repositorio incluye un pipeline de Jenkins definido en `Jenkinsfile` que cu
 - generación de Prisma
 - compilación de Next.js
 - lint con `npm run lint`
-- escaneo de seguridad con `npm audit --audit-level=high`
+- escaneo de seguridad con `npm audit --audit-level=critical`
 - pruebas con `npm test`
 - empaquetado de artefactos de entrega continua
 
