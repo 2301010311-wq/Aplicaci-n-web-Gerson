@@ -9,7 +9,7 @@ interface PresasPolloSelectorProps {
   onDescontarClick?: () => Promise<void>
   maxPechos?: number
   maxPiernas?: number
-  autoDescontar?: boolean
+  mostrarBotonDescontar?: boolean
 }
 
 interface Inventario {
@@ -22,7 +22,7 @@ export function PreasPolloSelector({
   onDescontarClick,
   maxPechos = 10,
   maxPiernas = 10,
-  autoDescontar = false,
+  mostrarBotonDescontar = true,
 }: PresasPolloSelectorProps) {
   const [pechos, setPechos] = useState(0)
   const [piernas, setPiernas] = useState(0)
@@ -38,7 +38,7 @@ export function PreasPolloSelector({
     if (onSelectionChange) {
       onSelectionChange(pechos, piernas)
     }
-  }, [pechos, piernas])
+  }, [pechos, piernas, onSelectionChange])
 
   const fetchInventario = async () => {
     try {
@@ -227,25 +227,26 @@ export function PreasPolloSelector({
         </div>
       </div>
 
-      {/* BOTÓN DESCONTAR */}
-      <Button
-        onClick={handleDescontar}
-        disabled={descontando || (pechos === 0 && piernas === 0)}
-        type="button"
-        className="w-full bg-gradient-to-r from-[#C9A227] to-[#a88820] hover:from-[#a88820] hover:to-[#8B7B1F] text-[#1C1C1C] font-bold py-3 text-sm px-4 rounded-lg transition-all disabled:opacity-50"
-      >
-        {descontando ? (
-          <>
-            <Loader2 className="w-4 h-4 mr-2 animate-spin inline" />
-            Descontando...
-          </>
-        ) : (
-          <>
-            <Drumstick className="w-4 h-4 mr-2 inline" />
-            Descontar
-          </>
-        )}
-      </Button>
+      {mostrarBotonDescontar && (
+        <Button
+          onClick={handleDescontar}
+          disabled={descontando || (pechos === 0 && piernas === 0)}
+          type="button"
+          className="w-full bg-gradient-to-r from-[#C9A227] to-[#a88820] hover:from-[#a88820] hover:to-[#8B7B1F] text-[#1C1C1C] font-bold py-3 text-sm px-4 rounded-lg transition-all disabled:opacity-50"
+        >
+          {descontando ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin inline" />
+              Descontando...
+            </>
+          ) : (
+            <>
+              <Drumstick className="w-4 h-4 mr-2 inline" />
+              Descontar
+            </>
+          )}
+        </Button>
+      )}
 
       {(pechos > 0 || piernas > 0) && (
         <div className="text-[#C9A227] font-bold text-center text-sm bg-gradient-to-r from-[#2F2F2F] to-[#1C1C1C] rounded-lg p-3 border border-[#C9A227] border-opacity-30">

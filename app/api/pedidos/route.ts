@@ -2,6 +2,17 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAuth } from "@/lib/middleware-auth"
 
+function getTodayInLima() {
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Lima",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date())
+
+  return new Date(`${today}T00:00:00.000Z`)
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(["Admin", "Mesero", "Cajero"])
   if ("error" in auth) {
@@ -122,7 +133,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { mesaId, tipoServicio, detalles, clienteInfo, observaciones } = await request.json()
+    const { mesaId, tipoServicio, detalles, clienteInfo, observaciones, presasPollo } = await request.json()
 
     if (!detalles || detalles.length === 0) {
       return NextResponse.json({ error: "Detalles del pedido son requeridos" }, { status: 400 })
@@ -214,10 +225,84 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    const pechosSolicitados = Number(presasPollo?.pechos || 0)
+    const piernasSolicitadas = Number(presasPollo?.piernas || 0)
+
+    if (
+      !Number.isInteger(pechosSolicitados) ||
+      !Number.isInteger(piernasSolicitadas) ||
+      pechosSolicitados < 0 ||
+      piernasSolicitadas < 0
+    ) {
+      await prisma.pedidos.delete({
+        where: { id_pedido: pedido.id_pedido },
+      }).catch(() => {})
+
+      return NextResponse.json(
+        { error: "Las presas de pollo deben ser cantidades enteras no negativas" },
+        { status: 400 }
+      )
+    }
+
     // ✅ CREAR DETALLES CON TRANSACCIÓN ATÓMICA (evita race conditions)
     try {
       const detallesCreados = await prisma.$transaction(async (tx) => {
         const detalles_creados = []
+        const debeDescontarPresas = pechosSolicitados > 0 || piernasSolicitadas > 0
+
+        if (debeDescontarPresas) {
+          const hoy = getTodayInLima()
+          const inventario = await (tx as any).$queryRaw<Array<any>>`
+            SELECT "id_inventario", "pechos_disponibles", "piernas_disponibles"
+            FROM "inventario_pollos"
+            WHERE "fecha" = ${hoy}
+            FOR UPDATE
+          `
+
+          if (!inventario || inventario.length === 0) {
+            throw new Error("No hay inventario de pollos para hoy. Registra los pollos disponibles antes de crear el pedido.")
+          }
+
+          const [stock] = inventario
+          const pechosDisponibles = Number(stock.pechos_disponibles || 0)
+          const piernasDisponibles = Number(stock.piernas_disponibles || 0)
+
+          if (pechosDisponibles < pechosSolicitados) {
+            throw new Error(`Stock insuficiente de pechos. Disponibles: ${pechosDisponibles}, solicitados: ${pechosSolicitados}`)
+          }
+
+          if (piernasDisponibles < piernasSolicitadas) {
+            throw new Error(`Stock insuficiente de piernas. Disponibles: ${piernasDisponibles}, solicitadas: ${piernasSolicitadas}`)
+          }
+
+          await tx.inventario_pollos.update({
+            where: { id_inventario: stock.id_inventario },
+            data: {
+              pechos_disponibles: pechosDisponibles - pechosSolicitados,
+              piernas_disponibles: piernasDisponibles - piernasSolicitadas,
+            },
+          })
+
+          if (pechosSolicitados > 0) {
+            await tx.detalle_pollos_pedido.create({
+              data: {
+                id_pedido: pedido.id_pedido,
+                tipo_presa: "pecho",
+                cantidad: pechosSolicitados,
+              },
+            })
+          }
+
+          if (piernasSolicitadas > 0) {
+            await tx.detalle_pollos_pedido.create({
+              data: {
+                id_pedido: pedido.id_pedido,
+                tipo_presa: "pierna",
+                cantidad: piernasSolicitadas,
+              },
+            })
+          }
+        }
 
         for (const d of detalles) {
           // Si es un producto "otro", guardar con nombre personalizado (no tiene stock)
@@ -454,5 +539,4 @@ export async function PUT(request: NextRequest) {
     }, { status: 500 })
   }
 }
-
 

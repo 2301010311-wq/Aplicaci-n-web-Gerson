@@ -48,6 +48,8 @@ export function NuevoPedidoForm() {
   const [observaciones, setObservaciones] = useState("")
   const [detalles, setDetalles] = useState<DetalleItem[]>([])
   const [mostrarSelectorPollos, setMostrarSelectorPollos] = useState(false)
+  const [pechosSeleccionados, setPechosSeleccionados] = useState(0)
+  const [piernasSeleccionadas, setPiernasSeleccionadas] = useState(0)
   
   // Campos de cliente para delivery y para llevar
   const [numeroTelefono, setNumeroTelefono] = useState("")
@@ -170,6 +172,10 @@ export function NuevoPedidoForm() {
             cantidad: d.cantidad,
             precioUnitario: d.precio,
           })),
+          presasPollo: {
+            pechos: pechosSeleccionados,
+            piernas: piernasSeleccionadas,
+          },
           ...(tipoServicio !== "mesa" && {
             clienteInfo: {
               numeroTelefono,
@@ -340,9 +346,13 @@ export function NuevoPedidoForm() {
             {mostrarSelectorPollos && (
               <div className="bg-[#1C1C1C] rounded-lg p-3">
                 <PreasPolloSelector
-                  onSelectionChange={() => {}}
+                  onSelectionChange={(pechos, piernas) => {
+                    setPechosSeleccionados(pechos)
+                    setPiernasSeleccionadas(piernas)
+                  }}
                   maxPechos={4}
                   maxPiernas={4}
+                  mostrarBotonDescontar={false}
                 />
               </div>
             )}
