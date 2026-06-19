@@ -3,31 +3,67 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { ClientProtectedLayout } from "@/components/client-protected-layout"
 
+type DashboardData = {
+  pedidosActivos: number
+  ventasHoy: number
+  insumosVencer: number
+  insumosBajoStock: number
+  loading: boolean
+  error: string | null
+}
+
 export default function DashboardPage() {
-  const [dashboardData, setDashboardData] = useState({
+  const [dashboardData, setDashboardData] = useState<DashboardData>({
     pedidosActivos: 0,
     ventasHoy: 0,
     insumosVencer: 0,
     insumosBajoStock: 0,
-    loading: true
+    loading: true,
+    error: null,
   })
+
   useEffect(() => {
-    // Simular datos del dashboard por ahora
-    setTimeout(() => {
-      setDashboardData({
-        pedidosActivos: 5,
-        ventasHoy: 1250.50,
-        insumosVencer: 3,
-        insumosBajoStock: 2,
-        loading: false
-      })
-    }, 1000)
+    const cargarDashboard = async () => {
+      try {
+        const response = await fetch("/api/dashboard", { cache: "no-store" })
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data?.error || "Error al cargar dashboard")
+        }
+
+        setDashboardData({
+          pedidosActivos: Number(data.pedidosActivos || 0),
+          ventasHoy: Number(data.ventasHoy || 0),
+          insumosVencer: Number(data.insumosVencer || 0),
+          insumosBajoStock: Number(data.insumosBajoStock || 0),
+          loading: false,
+          error: null,
+        })
+      } catch (error) {
+        setDashboardData((current) => ({
+          ...current,
+          loading: false,
+          error: error instanceof Error ? error.message : "Error al cargar dashboard",
+        }))
+      }
+    }
+
+    cargarDashboard()
   }, [])
 
   if (dashboardData.loading) {
     return (
       <ClientProtectedLayout>
         <div className="text-center text-[#EAEAEA] py-8">Cargando dashboard...</div>
+      </ClientProtectedLayout>
+    )
+  }
+
+  if (dashboardData.error) {
+    return (
+      <ClientProtectedLayout>
+        <div className="text-center text-red-400 py-8">{dashboardData.error}</div>
       </ClientProtectedLayout>
     )
   }
