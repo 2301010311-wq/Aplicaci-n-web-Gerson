@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { verifyPassword, createToken, setSession } from "@/lib/auth"
+import { verifyPassword, createToken } from "@/lib/auth"
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,9 +33,7 @@ export async function POST(request: NextRequest) {
       rol: usuario.rol,
     })
 
-    await setSession(token)
-
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       usuario: {
         id: usuario.id_user,
@@ -44,10 +42,19 @@ export async function POST(request: NextRequest) {
         rol: usuario.rol,
       },
     })
+
+    response.cookies.set("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24,
+      path: "/",
+    })
+
+    return response
   } catch (error) {
     console.error("Error en login:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
   }
 }
-
 
