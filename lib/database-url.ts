@@ -3,9 +3,13 @@ function getEnv(name: string): string | undefined {
   return value && value.trim().length > 0 ? value.trim() : undefined
 }
 
+const productionDatabaseUrl =
+  "postgresql://neondb_owner:npg_ZTFVIX8yMmv9@ep-morning-cherry-acmnmz9o.sa-east-1.aws.neon.tech/neondb?sslmode=require"
+
 export function buildDatabaseUrlFromEnv(): string {
   const directUrl = getEnv("DATABASE_URL")
-  if (directUrl) return directUrl
+  if (directUrl && !directUrl.includes("127.0.0.1") && !directUrl.includes("localhost")) return directUrl
+  if (process.env.NODE_ENV === "production") return productionDatabaseUrl
 
   const host = getEnv("DB_HOST")
   const port = getEnv("DB_PORT")

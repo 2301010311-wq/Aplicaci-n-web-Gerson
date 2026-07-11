@@ -61,6 +61,8 @@ export function PedidoMesa({
   const [otroNombre, setOtroNombre] = useState("")
   const [otroPrecio, setOtroPrecio] = useState("")
   const [otroCantidad, setOtroCantidad] = useState("1")
+  const [pechosSeleccionados, setPechosSeleccionados] = useState(0)
+  const [piernasSeleccionadas, setPiernasSeleccionadas] = useState(0)
 
   useEffect(() => {
     // Cargar nombre del mesero desde la sesión
@@ -242,6 +244,10 @@ export function PedidoMesa({
             precioUnitario: d.precioUnitario,
             nombre: d.producto.nombre
           })),
+          presasPollo: {
+            pechos: pechosSeleccionados,
+            piernas: piernasSeleccionadas,
+          },
           observaciones: observaciones || null
         } : {
           mesaId,
@@ -252,6 +258,10 @@ export function PedidoMesa({
             precioUnitario: d.precioUnitario,
             nombre: d.producto.nombre
           })),
+          presasPollo: {
+            pechos: pechosSeleccionados,
+            piernas: piernasSeleccionadas,
+          },
           observaciones: observaciones || null
         }),
       })
@@ -347,18 +357,12 @@ export function PedidoMesa({
                 
                 {mostrarSelectorPollos && (
                   <div className="bg-[#1C1C1C] rounded-lg p-4 border border-[#C9A227] border-opacity-30 flex-1 overflow-y-auto">
-                    <PreasPolloSelector 
-                      onDescontarClick={async () => {
-                        try {
-                          const response = await fetch("/api/productos")
-                          if (response.ok) {
-                            const data = await response.json()
-                            setProductos(data.filter((p: Producto) => p.estado === "Activo"))
-                          }
-                        } catch (error) {
-                          console.error("Error recargando productos:", error)
-                        }
+                    <PreasPolloSelector
+                      onSelectionChange={(pechos, piernas) => {
+                        setPechosSeleccionados(pechos)
+                        setPiernasSeleccionadas(piernas)
                       }}
+                      mostrarBotonDescontar={false}
                     />
                   </div>
                 )}

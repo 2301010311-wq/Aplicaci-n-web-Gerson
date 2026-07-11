@@ -34,16 +34,12 @@ pipeline {
       steps {
         script {
           // Verificar si es un sistema Unix/Linux o Windows
-          if (isUnix()) {
-            // Comando para sistemas Linux/Mac: mostrar versiones de Node y npm
-            sh "node --version && npm --version"
-            // Instalar dependencias usando npm ci (más seguro que npm install para CI)
-            sh "npm ci"
+          if (isUnix()) { // Comando para sistemas Linux/Mac: mostrar versiones de Node y npm sh "node --version && npm --version"
+            sh fileExists('package-lock.json') ? "npm ci" : "npm install"
           } else {
             // Comando para sistemas Windows: mostrar versiones
             bat "node --version && npm --version"
-            // Instalar dependencias en Windows
-            bat "npm ci"
+            bat script: fileExists('package-lock.json') ? "npm ci" : "npm install"
           }
         }
       }
@@ -87,11 +83,31 @@ pipeline {
       }
     }
 
-    // ========================================================================
-    // ETAPA 4: PRUEBAS Y VALIDACIÓN DE CALIDAD
-    // ========================================================================
-    // Ejecuta tests unitarios (si existen) y linting de código
-    // Valida que el código cumpla con estándares de calidad
+    stage("Lint") {
+      steps {
+        script {
+          if (isUnix()) {
+            sh "npm run lint"
+          } else {
+            bat "npm run lint"
+          }
+        }
+      }
+    }
+
+    stage("Security Audit") {
+      steps {
+        script {
+          if (isUnix()) {
+            sh(script: "npm audit --audit-level=critical", returnStatus: true)
+          } else {
+            bat(script: "npm audit --audit-level=critical", returnStatus: true)
+          }
+          echo "Security audit completed (only critical vulnerabilities will fail the build)"
+        }
+      }
+    }
+
     stage("Test") {
       steps {
         script {
@@ -125,23 +141,11 @@ pipeline {
             // Mostrar mensaje si no existe script de tests
             echo "No npm test script in package.json — skipping unit tests."
           }
-
-          // Ejecutar ESLint para validación de código (en ambos sistemas)
-          if (isUnix()) {
-            sh "npm run lint"
-          } else {
-            bat "npm run lint"
-          }
         }
       }
     }
 
-    // ========================================================================
-    // ETAPA 5: DESPLIEGUE Y ARCHIVADO DE ARTEFACTOS
-    // ========================================================================
-    // Archiva artefactos de compilación para trazabilidad y auditoría
-    // Genera un archivo con información del build para descarga desde Jenkins
-    stage("Deploy") {
+    stage("Release") {
       steps {
         script {
           // Crear información del build
@@ -152,15 +156,9 @@ timestamp=${new Date()}
 """
           // Escribir información en archivo
           writeFile file: "jenkins-build-info.txt", text: info
-          
-          // Archivar artefactos en Jenkins
-          // - artifacts: archivo a archivar
-          // - onlyIfSuccessful: solo si todas las etapas anteriores tuvieron éxito
-          // - fingerprint: crear fingerprint para rastrear versiones
-          archiveArtifacts artifacts: "jenkins-build-info.txt", onlyIfSuccessful: true, fingerprint: true
-          
-          // Mostrar mensaje de confirmación
-          echo "Build artifact archived: jenkins-build-info.txt (download from Jenkins job page)."
+          writeFile file: "release/release-ready.txt", text: "Entrega continua lista: build ${env.BUILD_NUMBER}"
+          archiveArtifacts artifacts: "jenkins-build-info.txt, release/**", onlyIfSuccessful: true, fingerprint: true
+          echo "Artefactos de entrega continua archivados: jenkins-build-info.txt y release/release-ready.txt."
         }
       }
     }

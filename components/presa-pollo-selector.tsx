@@ -9,7 +9,7 @@ interface PresasPolloSelectorProps {
   onDescontarClick?: () => Promise<void>
   maxPechos?: number
   maxPiernas?: number
-  autoDescontar?: boolean
+  mostrarBotonDescontar?: boolean
 }
 
 interface Inventario {
@@ -22,13 +22,20 @@ export function PreasPolloSelector({
   onDescontarClick,
   maxPechos = 10,
   maxPiernas = 10,
-  autoDescontar = false,
+  mostrarBotonDescontar = true,
 }: PresasPolloSelectorProps) {
   const [pechos, setPechos] = useState(0)
   const [piernas, setPiernas] = useState(0)
   const [inventario, setInventario] = useState<Inventario | null>(null)
   const [loading, setLoading] = useState(true)
   const [descontando, setDescontando] = useState(false)
+  const limitarPorInventario = mostrarBotonDescontar
+  const limitePechos = inventario && limitarPorInventario
+    ? Math.min(maxPechos, inventario.pechos_disponibles)
+    : maxPechos
+  const limitePiernas = inventario && limitarPorInventario
+    ? Math.min(maxPiernas, inventario.piernas_disponibles)
+    : maxPiernas
 
   useEffect(() => {
     fetchInventario()
@@ -38,7 +45,7 @@ export function PreasPolloSelector({
     if (onSelectionChange) {
       onSelectionChange(pechos, piernas)
     }
-  }, [pechos, piernas])
+  }, [pechos, piernas, onSelectionChange])
 
   const fetchInventario = async () => {
     try {
@@ -55,7 +62,7 @@ export function PreasPolloSelector({
   }
 
   const incrementPechos = () => {
-    if (inventario && pechos < Math.min(maxPechos, inventario.pechos_disponibles)) {
+    if (pechos < limitePechos) {
       setPechos(pechos + 1)
     }
   }
@@ -67,7 +74,7 @@ export function PreasPolloSelector({
   }
 
   const incrementPiernas = () => {
-    if (inventario && piernas < Math.min(maxPiernas, inventario.piernas_disponibles)) {
+    if (piernas < limitePiernas) {
       setPiernas(piernas + 1)
     }
   }
@@ -175,14 +182,14 @@ export function PreasPolloSelector({
               type="number"
               value={pechos}
               onChange={(e) => {
-                const val = Math.max(0, Math.min(parseInt(e.target.value) || 0, Math.min(maxPechos, inventario.pechos_disponibles)))
+                const val = Math.max(0, Math.min(parseInt(e.target.value) || 0, limitePechos))
                 setPechos(val)
               }}
               className="flex-1 bg-[#2F2F2F] text-[#EAEAEA] text-center font-bold outline-none px-2 py-2 border-0 mx-1 rounded focus:ring-2 focus:ring-[#C9A227] focus:ring-opacity-50 transition-all"
             />
             <Button
               onClick={incrementPechos}
-              disabled={pechos >= Math.min(maxPechos, inventario.pechos_disponibles)}
+              disabled={pechos >= limitePechos}
               type="button"
               className="p-0 h-auto w-8 bg-gradient-to-r from-[#C9A227] to-[#a88820] hover:from-[#a88820] hover:to-[#C9A227] text-[#1C1C1C] disabled:opacity-40 font-bold flex-shrink-0 flex items-center justify-center rounded-md"
               size="sm"
@@ -209,14 +216,14 @@ export function PreasPolloSelector({
               type="number"
               value={piernas}
               onChange={(e) => {
-                const val = Math.max(0, Math.min(parseInt(e.target.value) || 0, Math.min(maxPiernas, inventario.piernas_disponibles)))
+                const val = Math.max(0, Math.min(parseInt(e.target.value) || 0, limitePiernas))
                 setPiernas(val)
               }}
               className="flex-1 bg-[#2F2F2F] text-[#EAEAEA] text-center font-bold outline-none px-2 py-2 border-0 mx-1 rounded focus:ring-2 focus:ring-[#C9A227] focus:ring-opacity-50 transition-all"
             />
             <Button
               onClick={incrementPiernas}
-              disabled={piernas >= Math.min(maxPiernas, inventario.piernas_disponibles)}
+              disabled={piernas >= limitePiernas}
               type="button"
               className="p-0 h-auto w-8 bg-gradient-to-r from-[#C9A227] to-[#a88820] hover:from-[#a88820] hover:to-[#C9A227] text-[#1C1C1C] disabled:opacity-40 font-bold flex-shrink-0 flex items-center justify-center rounded-md"
               size="sm"
@@ -227,25 +234,26 @@ export function PreasPolloSelector({
         </div>
       </div>
 
-      {/* BOTÓN DESCONTAR */}
-      <Button
-        onClick={handleDescontar}
-        disabled={descontando || (pechos === 0 && piernas === 0)}
-        type="button"
-        className="w-full bg-gradient-to-r from-[#C9A227] to-[#a88820] hover:from-[#a88820] hover:to-[#8B7B1F] text-[#1C1C1C] font-bold py-3 text-sm px-4 rounded-lg transition-all disabled:opacity-50"
-      >
-        {descontando ? (
-          <>
-            <Loader2 className="w-4 h-4 mr-2 animate-spin inline" />
-            Descontando...
-          </>
-        ) : (
-          <>
-            <Drumstick className="w-4 h-4 mr-2 inline" />
-            Descontar
-          </>
-        )}
-      </Button>
+      {mostrarBotonDescontar && (
+        <Button
+          onClick={handleDescontar}
+          disabled={descontando || (pechos === 0 && piernas === 0)}
+          type="button"
+          className="w-full bg-gradient-to-r from-[#C9A227] to-[#a88820] hover:from-[#a88820] hover:to-[#8B7B1F] text-[#1C1C1C] font-bold py-3 text-sm px-4 rounded-lg transition-all disabled:opacity-50"
+        >
+          {descontando ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin inline" />
+              Descontando...
+            </>
+          ) : (
+            <>
+              <Drumstick className="w-4 h-4 mr-2 inline" />
+              Descontar
+            </>
+          )}
+        </Button>
+      )}
 
       {(pechos > 0 || piernas > 0) && (
         <div className="text-[#C9A227] font-bold text-center text-sm bg-gradient-to-r from-[#2F2F2F] to-[#1C1C1C] rounded-lg p-3 border border-[#C9A227] border-opacity-30">

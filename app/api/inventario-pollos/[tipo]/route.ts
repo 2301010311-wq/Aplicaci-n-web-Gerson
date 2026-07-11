@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
+function getTodayInLima() {
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Lima",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date())
+
+  return new Date(`${today}T00:00:00.000Z`)
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { tipo_presa, cantidad } = await request.json()
@@ -19,8 +30,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const hoy = new Date()
-    hoy.setHours(0, 0, 0, 0)
+    const hoy = getTodayInLima()
 
     const inventario = await prisma.inventario_pollos.findUnique({
       where: { fecha: hoy },
@@ -81,8 +91,7 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    const hoy = new Date()
-    hoy.setHours(0, 0, 0, 0)
+    const hoy = getTodayInLima()
 
     const inventario = await prisma.inventario_pollos.findUnique({
       where: { fecha: hoy },
