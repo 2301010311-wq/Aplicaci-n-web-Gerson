@@ -1,39 +1,28 @@
-import type React from "react"
-import type { Metadata } from "next"
-import { Geist, Geist_Mono } from "next/font/google"
-import "./globals.css"
-import { AlertProvider } from "@/contexts/alert-context"
-import { AlertsContainer } from "@/components/alerts-container"
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import "./globals.css";
+import { SpeedInsights } from "@vercel/speed-insights/next";
+import { Analytics } from "@vercel/analytics/react";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-})
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-})
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Pollería Gerson - Sistema de Gestión",
-  description: "Sistema completo de gestión para restaurante",
-    generator: 'v0.app'
-}
+  title: "Pollería Gerson",
+  description: "Aplicación de gestión para la Pollería Gerson",
+};
 
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode
+  children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body className="antialiased">
-        <AlertProvider>
-          {children}
-          <AlertsContainer />
-        </AlertProvider>
+    <html lang="es">
+      <body className={inter.className}>
+        {children}
+        <SpeedInsights />
+        <Analytics />
       </body>
     </html>
-  )
+  );
 }

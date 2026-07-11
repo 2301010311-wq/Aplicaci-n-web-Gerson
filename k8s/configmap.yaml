@@ -1,10 +1,44 @@
+# ========================================================================================
+# 📋 CONFIGMAP: Configuración no sensible de la aplicación
+# ========================================================================================
+# PROPÓSITO:
+#   ConfigMap almacena datos de configuración NO SENSIBLES en pares clave-valor
+#   Se usa para variables de entorno que pueden estar en control de versiones
+#   Estos datos se inyectan en los contenedores automáticamente
+#
+# CARACTERÍSTICAS:
+#   - NO ENCRIPTADOS (visible en kubectl describe configmap)
+#   - REPLICADOS entre nodos (disponibles para todos los pods)
+#   - FÁCIL DE ACTUALIZAR sin rebuild de Docker
+#   - PERFECTO para: URLs, puertos, nombres de BD, modo desarrollo/producción
+#
+# ⚠️  IMPORTANTE: NUNCA poner contraseñas, tokens o claves aquí
+#     Usar Secrets para datos sensibles (vea secret.yaml)
+# ========================================================================================
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  # Nombre del ConfigMap - Se referencia desde deployment.yaml
   name: app-config
+  
 data:
+  # ========== CONFIGURACIÓN DE ENTORNO ==========
+  # Estas variables se inyectan como variables de entorno en el contenedor
+  
+  # Ambiente: "production" = aplicación lista para usuarios reales
   NODE_ENV: "production"
+  
+  # Puerto donde la aplicación escucha dentro del contenedor
   PORT: "3000"
+  
+  # ========== CONFIGURACIÓN DE BASE DE DATOS ==========
+  # Servidor: "postgres" es el nombre del servicio Kubernetes
+  # K8s resuelve automáticamente "postgres" → IP interna de la BD
   DB_HOST: "postgres"
+  
+  # Puerto estándar de PostgreSQL
   DB_PORT: "5432"
+  
+  # Nombre de la base de datos a usar
   DB_NAME: "polleria_gerson"

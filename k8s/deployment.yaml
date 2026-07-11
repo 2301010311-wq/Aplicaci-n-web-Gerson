@@ -50,7 +50,7 @@ spec:
         # ========== CONTENEDOR BACKEND ==========
         - name: backend
           # Imagen Docker a usar (desde registry de contenedores)
-          image: polleria-gerson:latest
+          image: ghcr.io/2301010311-wq/aplicaci-n-web-gerson:latest
           # POLÍTICA DE ACTUALIZACIÓN DE IMAGEN:
           # - IfNotPresent: Solo descargar si no existe localmente
           # - Always: Descargar siempre (más lento, pero garantiza versión actual)

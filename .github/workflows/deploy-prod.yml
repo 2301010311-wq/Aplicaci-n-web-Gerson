@@ -1,0 +1,324 @@
+# ========================================================================================
+# 🚀 WORKFLOW: Deploy MANUAL a Producción (Etapa 3 del CD)
+# ========================================================================================
+# Este workflow despliega A PRODUCCIÓN bajo aprobación manual del equipo.
+# NO es automático: Requiere que alguien haga click en GitHub para ejecutarse.
+#
+# DIFERENCIA vs Staging:
+#   - Staging: Se dispara automáticamente después de cada push a main
+#   - Producción: Se dispara MANUALMENTE solo cuando el equipo decide
+#
+# FLUJO:
+#   1. Desarrollador/DevOps elige ejecutar el workflow desde GitHub
+#   2. Ingresa el tag de imagen a deployar (ej: sha-a1b2c3d4...)
+#   3. Opcional: GitHub puede pedir aprobación de ambiente 'production'
+#   4. Actualiza el deployment de K8s producción
+#   5. Espera rollout completar sin errores
+#   6. Valida con smoke test
+#
+# RESULTADO: La versión testada en staging está ahora en producción
+# ========================================================================================
+name: Deploy Production
+
+# ========== DISPARADORES DEL WORKFLOW ==========
+on:
+  # workflow_dispatch = Se dispara manualmente desde GitHub UI (bajo demanda)
+  workflow_dispatch:
+    # Pedir input del usuario antes de ejecutar
+    inputs:
+      image_tag:
+        # Nombre del parámetro
+        description: "Tag de imagen a promover (ej: sha-abc123...)"
+        # Texto de ayuda mostrado al usuario
+        required: true     # Usuario DEBE proporcionar un valor
+        type: string       # Valor es texto (no lista/boolean)
+        # Ejemplo de uso:
+        # El usuario ingresa: sha-a1b2c3d4ef5678abc1234567890def0
+        # Luego puede ser accedido como: ${{ inputs.image_tag }}
+
+env:
+  # ========== VARIABLES GLOBALES ==========
+  # Registro donde se encuentra la imagen Docker
+  REGISTRY: ghcr.io
+  
+  # Nombre completo de la imagen: owner/repo
+  IMAGE_NAME: ${{ github.repository }}
+  
+  # Namespace de Kubernetes de PRODUCCIÓN
+  K8S_NAMESPACE: default
+  
+  # Nombre del deployment de producción
+  K8S_DEPLOYMENT: backend
+  
+  # Contenedor dentro del deployment
+  K8S_CONTAINER: backend
+  
+  # URL para validación de salud en producción
+  # Ej: https://polleria.com/api/health (dominio público)
+  HEALTHCHECK_URL: ${{ vars.PROD_HEALTHCHECK_URL }}
+
+jobs:
+  # ========== JOB PRINCIPAL: DEPLOY A PRODUCCIÓN ==========
+  deploy:
+    name: Deploy to Production
+    
+    runs-on: ubuntu-latest
+    
+    # IMPORTANTE: Ambiente de GitHub configurado para 'production'
+    # GitHub puede pedir aprobación manualmente antes de ejecutar
+    # (si está configurado en protección de ambiente)
+    environment: production
+    
+    # Permisos necesarios
+    permissions:
+      contents: read    # Leer código del repo
+      packages: read    # Leer imágenes del registro
+
+    # ========== PASOS DEL JOB ==========
+    steps:
+      # ✅ PASO 1: Descargar código fuente
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      # ✅ PASO 2: Instalar kubectl
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.30.0"  # Versión compatible con cluster producción
+
+      # ✅ PASO 3: Configurar acceso al cluster Kubernetes de PRODUCCIÓN
+      - name: Configure kubeconfig
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.kube"
+          
+          # Decodificar kubeconfig de producción desde secrets
+          # Este KUBE_CONFIG es diferente al de staging
+          # Apunta a cluster de producción con permisos limitados
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 --decode > "$HOME/.kube/config"
+          
+          # Nota de seguridad:
+          # Este secret solo es accesible en ambiente 'production'
+          # GitHub no permite usarlo en otros ambientes
+
+      # ✅ PASO 4: Construir referencia a la imagen Docker
+      # Usa el tag ingresado por el usuario en workflow_dispatch
+      - name: Build image reference
+        id: image  # Outputs: ref
+        run: |
+          # Construir la ruta completa de la imagen con el TAG del usuario
+          # Usuario ingresó: sha-a1b2c3d4ef5678...
+          # Resultado: ghcr.io/myaccount/polleria:sha-a1b2c3d4ef5678...
+          echo "ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          # inputs.image_tag = valor ingresado por el usuario en workflow_dispatch
+
+      # ✅ PASO 5: ACTUALIZAR el deployment de Kubernetes PRODUCCIÓN
+      # Este paso actualiza los servidores donde los usuarios reales usan la app
+      - name: Set image in Kubernetes deployment
+        run: |
+          # Ejecutar comando kubectl en cluster de producción:
+          kubectl -n "${{ env.K8S_NAMESPACE }}" set image deployment/${{ env.K8S_DEPLOYMENT }} \
+            ${{ env.K8S_CONTAINER }}=${{ steps.image.outputs.ref }}
+          
+          # Ejemplo real:
+          # kubectl -n default set image deployment/backend backend=ghcr.io/myaccount/polleria:sha-a1b2c3d4
+          #
+          # ⚠️  IMPORTANTE: Esto dispara el ROLLING UPDATE en PRODUCCIÓN
+          # 
+          # 🔄 ROLLING UPDATE EN PRODUCCIÓN (Paso a Paso):
+          #
+          # FASE 1: PREPARACIÓN (T=0-5s)
+          #   ├─ Pod viejo: 🟢 CORRIENDO (200 req/s llegando)
+          #   ├─ Pod nuevo: ❌ No existe
+          #   ├─ K8s: Detecta cambio de imagen
+          #   └─ Acción: Inicia descarga de nueva imagen
+          #
+          # FASE 2: INICIALIZACIÓN (T=5-35s)
+          #   ├─ Pod viejo: 🟢 CORRIENDO (tráfico activo)
+          #   ├─ Pod nuevo: 🟡 INICIANDO
+          #   ├─ Health check: /api/health (chequea BD y conexiones)
+          #   ├─ Startup Probe: Reintenta cada 10s (máx 30 veces)
+          #   └─ ⏳ ESPERA: Si startup falla → Pod se reinicia automáticamente
+          #
+          # FASE 3: READINESS (T=35-40s)
+          #   ├─ Pod viejo: 🟢 CORRIENDO (sigue con tráfico actual)
+          #   ├─ Pod nuevo: 🟢 LISTO (pasó readiness probe)
+          #   ├─ K8s: Agrega nuevo pod al load balancer
+          #   ├─ Acción: Comienza a mandar NUEVO tráfico al pod nuevo
+          #   ├─ Usuarios nuevos: Van al pod nuevo
+          #   └─ Usuarios actuales: Se quedan en pod viejo hasta terminar
+          #
+          # FASE 4: TRANSICIÓN (T=40-60s)
+          #   ├─ Pod viejo: 🟡 TERMINATING (no recibe tráfico NUEVO)
+          #   ├─ Pod nuevo: 🟢 RUNNING (recibe tráfico NUEVO)
+          #   ├─ Liveness Probe: Verifica cada 30s que pod nuevo está bien
+          #   ├─ Grace Period: 30s para que terminen requests viejos
+          #   └─ ✅ OBJETIVO: Tráfico 100% al pod nuevo
+          #
+          # FASE 5: FINALIZACIÓN (T=60s+)
+          #   ├─ Pod viejo: ❌ ELIMINADO
+          #   ├─ Pod nuevo: 🟢 PERMANENTE
+          #   ├─ Tráfico: 100% al nuevo (todos viendo nueva versión)
+          #   └─ ✅ ROLLING UPDATE COMPLETADO
+          #
+          # 📊 IMPACTO EN USUARIOS (Con 1 réplica):
+          #   ⏱️  Downtime: 1-2 segundos máximo (transición de tráfico)
+          #   👥 Usuarios afectados: Nuevos requests durante transición pueden ver latencia
+          #   📱 Sesiones activas: Se preservan (keepalive)
+          #   💰 Ingresos: Sin pérdida significativa
+          #
+          # 🎯 POR QUÉ FUNCIONA:
+          #   ✅ Health checks garantizan que nuevo pod está 100% listo
+          #   ✅ Load balancer redirige tráfico gradualmente
+          #   ✅ Kubernetes maneja todo automáticamente
+          #   ✅ Si algo falla: Rol back automático al pod viejo
+          #
+          # ⚠️  POSIBLES PROBLEMAS:
+          #   ❌ Imagen no existe: Error, rollback automático
+          #   ❌ App no inicia: Reinicia pod, luego rollback si persiste
+          #   ❌ BD conexión falla: Health check falla, pod no recibe tráfico
+          #   ❌ Bug en código: Usuarios lo ven (es producción), requiere rollback manual
+          #
+          # 🔙 ROLLBACK SI FALLA (Manual):
+          #   $ kubectl rollout undo deployment/backend -n default
+          #   → Vuelve a pod viejo (versión anterior)
+          #   → Tráfico regresa al pod viejo en segundos
+
+      # ✅ PASO 6: ESPERAR a que el rollout se complete
+      - name: Wait for rollout
+        run: |
+          # Esperar hasta que el deployment esté completamente actualizado
+          # Timeout: 180 segundos = 3 minutos máximo
+          kubectl -n "${{ env.K8S_NAMESPACE }}" rollout status deployment/${{ env.K8S_DEPLOYMENT }} --timeout=180s
+          
+          # 🔄 QUÉ PASA DURANTE EL WAIT (Health Checks):
+          #
+          # STARTUP PROBE (Primera fase):
+          # ├─ ¿Se inició la app correctamente?
+          # ├─ Llamadas: GET /api/health (cada 10s, máx 30 intentos)
+          # ├─ Si pasa: Continúa a readiness probe
+          # ├─ Si falla 30 veces: Kubernetes REINICIA el pod
+          # └─ Duración: Máximo 300s (5 minutos)
+          #
+          # READINESS PROBE (Durante el rollout):
+          # ├─ ¿Está lista la app para recibir tráfico?
+          # ├─ Llamadas: GET /api/health (cada 10s)
+          # ├─ Response esperada: HTTP 200 con { "status": "healthy" }
+          # ├─ Si FALLA: Kubernetes quita pod del load balancer
+          # ├─ Si PASA: Pod recibe tráfico de usuarios
+          # └─ CRÍTICO en rolling update: sin readiness = tráfico a pod roto
+          #
+          # LIVENESS PROBE (Continuamente):
+          # ├─ ¿Sigue vivo el pod o está "congelado"?
+          # ├─ Llamadas: GET /api/health (cada 30s)
+          # ├─ Si falla 3 veces: Kubernetes MATA y reinicia el pod
+          # └─ Detecta deadlocks, memory leaks, app congelada
+          #
+          # ✅ RESULTADO ESPERADO:
+          #   - Pod nuevo: 🟢 RUNNING y READY
+          #   - Tráfico: 100% al pod nuevo
+          #   - Deploy: EXITOSO
+          #   - Usuarios: Viendo nueva versión
+          #
+          # ❌ SI FALLA EN 180s:
+          #   - Pod nuevo: 🔴 Nunca pasó readiness
+          #   - Tráfico: Sigue en pod viejo
+          #   - Deploy: ABORTADO
+          #   - Razones: Imagen falla, BD desconectada, recursos insuficientes
+          #   - Acción: Desarrollador debe revisar logs
+          #
+          # 🔍 DEBUGGING SI FALLA:
+          #   $ kubectl logs -f pod/backend-xxx -n default
+          #   $ kubectl describe pod/backend-xxx -n default
+          #   $ kubectl rollout undo deployment/backend -n default  # Rollback
+
+      # ✅ PASO 7: SMOKE TEST - Validación que producción está funcional
+      - name: Smoke test
+        if: ${{ env.HEALTHCHECK_URL != '' }}
+        # Solo ejecutar si existe URL de health check configurada
+        run: |
+          # Hacer request HTTP a /api/health del producción recientemente deployado
+          # URL pública: https://polleria.com/api/health
+          curl --fail --silent --show-error "${{ env.HEALTHCHECK_URL }}"
+          
+          # 🔍 SMOKE TEST EN PRODUCCIÓN:
+          # Es el ÚLTIMO paso antes de decir "DEPLOY EXITOSO"
+          # Si esto falla: Los usuarios NO verán la nueva versión
+          # Si esto pasa: Los usuarios SÍ ven la nueva versión
+          #
+          # FLAGS DE CURL:
+          # ├─ --fail: Exit code 1 si HTTP status es 4xx/5xx (no 200-399)
+          # ├─ --silent: No mostrar barra de progreso ni info de conexión
+          # └─ --show-error: Mostrar mensaje de error si hay
+          #
+          # RESPUESTA ESPERADA (HTTP 200 OK):
+          # {
+          #   "status": "healthy",
+          #   "database": "connected",
+          #   "timestamp": "2026-05-13T10:30:45Z",
+          #   "uptime": 42
+          # }
+          #
+          # 🟢 SI PASA (HTTP 200):
+          # ├─ Servidor responde correctamente
+          # ├─ Base de datos está conectada
+          # ├─ App inició sin errores
+          # └─ ✅ DEPLOYMENT COMPLETADO EXITOSAMENTE
+          #    └─ Usuarios ven la nueva versión
+          #
+          # 🔴 SI FALLA:
+          #
+          # CASO 1: HTTP 503 (Service Unavailable)
+          # ├─ /api/health responde pero con 503
+          # ├─ Razón: Database desconectada o app en shutdown
+          # ├─ Visto desde: Producción está en ESTADO CRÍTICO
+          # └─ Acción: Rollback manual INMEDIATO
+          #    $ kubectl rollout undo deployment/backend -n default
+          #
+          # CASO 2: HTTP 500 (Internal Server Error)
+          # ├─ Error en el código de la app
+          # ├─ Razón: Bug en la nueva versión
+          # ├─ Visto desde: Usuarios verán error 500
+          # └─ Acción: Rollback manual INMEDIATO
+          #
+          # CASO 3: HTTP 404 (Not Found)
+          # ├─ Endpoint /api/health no existe
+          # ├─ Razón: Cambios en rutas de API
+          # └─ Acción: Verificar que nueva imagen tiene este endpoint
+          #
+          # CASO 4: Timeout (sin respuesta en 30s)
+          # ├─ Servidor no responde
+          # ├─ Razón: App congelada, red caída, o recursos agotados
+          # └─ Acción: Revisar logs y revisar recursos del cluster
+          #
+          # CASO 5: Connection refused
+          # ├─ Servidor no escucha en el puerto
+          # ├─ Razón: App no inició o crasheó después de startup probe
+          # └─ Acción: Rollback manual
+          #
+          # 💥 SI SMOKE TEST FALLA:
+          # ├─ Este step termina con código de error
+          # ├─ GitHub Actions: Workflow marked as FAILED ❌
+          # ├─ Notificación: Email al equipo "Production deployment failed"
+          # ├─ Status Badge: Proyecto mostrará como en error
+          # ├─ Usuarios: Siguen con versión anterior (NO ven bug)
+          # └─ Siguiente: Equipo debe investigar y hacer rollback si es necesario
+          #
+          # ✅ SI SMOKE TEST PASA:
+          # ├─ Este step termina exitosamente
+          # ├─ GitHub Actions: Workflow marked as SUCCESS ✅
+          # ├─ Notificación: Email "Production deployment successful"
+          # ├─ Status Badge: Proyecto mostrará como OK
+          # ├─ Usuarios: AHORA ven la nueva versión
+          # └─ Timeline: Deployment completado en ~60 segundos
+          #
+          # 📊 RESUMEN DEL FLUJO COMPLETO:
+          # 1. Developer: Ejecuta workflow desde GitHub (manual)
+          # 2. GitHub: Pide image_tag (ej: sha-a1b2c3d4)
+          # 3. kubectl: set image (comienza rolling update)
+          # 4. K8s: Health checks pasan (pod nuevo listo)
+          # 5. Tráfico: Se redirige al pod nuevo
+          # 6. Smoke test: Verifica /api/health (última validación)
+          # 7. Resultado: ✅ PRODUCCIÓN ACTUALIZADA o ❌ ROLLBACK NECESARIO
+          #
+          # ⏱️  TIEMPO TOTAL: 40-60 segundos (con suerte)

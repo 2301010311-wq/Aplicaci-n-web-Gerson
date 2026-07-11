@@ -1,25 +1,110 @@
+# ========================================================================================
+# 🌐 SERVICE #1: Backend - Exponiendo la aplicación al mundo exterior
+# ========================================================================================
+# PROPÓSITO:
+#   Service expone los pods (contenedores) de forma que sean accesibles
+#   Sin Service, los pods son invisibles desde fuera del cluster K8s
+#
+# TIPOS DE SERVICES:
+#   1. ClusterIP (DEFAULT)   - Solo accesible dentro del cluster
+#   2. NodePort              - Accesible desde fuera (puerto en cada nodo)
+#   3. LoadBalancer          - Crea LB externo en cloud (AWS ELB, GCP LB)
+#   4. ExternalName          - Expone servicio externo dentro del cluster
+#
+# ESTE SERVICE = NodePort
+#   - Puerto interno del cluster: 3000
+#   - Puerto en cada nodo K8s: 30080
+#   - URL externa: http://<IP-nodo-k8s>:30080
+# ========================================================================================
+
 apiVersion: v1
 kind: Service
 metadata:
+  # Nombre único en el cluster
+  # Se usa para DNS interno de K8s (ej: backend-service:3000)
   name: backend-service
+  
 spec:
+  # ========== TIPO DE SERVICIO ==========
+  # NodePort: Expone en un puerto de cada nodo del cluster
+  # Rango válido: 30000-32767
   type: NodePort
+  
+  # ========== SELECTOR ==========
+  # Vincula este service con los pods que tienen label "app: backend"
+  # El deployment crea pods con "app: backend" → Service los encuentra automáticamente
   selector:
     app: backend
+  
+  # ========== PUERTOS ==========
+  # Mapeo de puertos entre servicio, pod y nodo
   ports:
     - protocol: TCP
+      # Puerto interno del cluster (otros servicios usan service:3000)
       port: 3000
+      # Puerto en el contenedor (app escucha en 3000)
       targetPort: 3000
+      # Puerto en el nodo K8s (usuarios acceden por 30080)
+      # Formato: http://<IP-NODE>:30080
       nodePort: 30080
+
 ---
+
+# ========================================================================================
+# 🗄️ SERVICE #2: PostgreSQL - Comunicación interna entre backend y BD
+# ========================================================================================
+# PROPÓSITO:
+#   Backend necesita conectar con PostgreSQL
+#   Este Service crea un DNS interno que resuelve el nombre "postgres"
+#   a la IP del pod de PostgreSQL
+#
+# NOTA: Este service es ClusterIP (DEFAULT)
+#   - Solo accesible dentro del cluster
+#   - El backend accede como: postgresql://postgres:5432
+#   - K8s resuelve "postgres" → IP del pod de BD
+#
+# FLUJO DE CONEXIÓN:
+#   Backend pod → DNS de K8s → resuelve "postgres" a IP → se conecta a BD
+# ========================================================================================
+
 apiVersion: v1
 kind: Service
 metadata:
+  # Nombre que se usa en connection strings
+  # Backend usa: DB_HOST="postgres" (desde configmap.yaml)
+  # K8s resuelve automáticamente a la IP del pod de PostgreSQL
   name: postgres
+  
 spec:
+  # ========== TIPO DE SERVICIO ==========
+  # Omitido = ClusterIP (default)
+  # ClusterIP solo es accesible dentro del cluster K8s
+  # No necesita puerto externo porque backend está dentro del cluster
+  # type: ClusterIP  (comentado porque es default)
+  
+  # ========== SELECTOR ==========
+  # Vincula con pods que tienen label "app: postgres"
+  # Asume que PostgreSQL está desplegado con ese label
+  # (Nota: En este proyecto, PostgreSQL corre en docker-compose, no en K8s)
   selector:
     app: postgres
+  
+  # ========== PUERTOS ==========
+  # Mapeo para comunicación interna
   ports:
     - protocol: TCP
+      # Puerto interno de K8s para acceder a este servicio
       port: 5432
+      # Puerto en el contenedor PostgreSQL
       targetPort: 5432
+
+---
+# ⚠️  NOTA IMPORTANTE SOBRE ARQUITECTURA:
+#     Este proyecto tiene inconsistencia:
+#     - Backend: Desplegado en Kubernetes (deployment.yaml)
+#     - PostgreSQL: Desplegado en docker-compose.yml
+#     
+#     Para producción, recomendar:
+#     1. Desplegar PostgreSQL también en K8s (usar helm chart de PostgreSQL)
+#     2. O usar servicio administrado: AWS RDS, Google Cloud SQL, Azure Database
+#     3. Backend en K8s se conecta a BD administrada por URL externa
