@@ -15,7 +15,7 @@ ENV DATABASE_URL=postgresql://build:[REDACTED]@127.0.0.1:5432/build?schema=publi
 RUN npm run build && npm prune --production
 
 # ==================== STAGE 3: DISTROLESS RUNTIME ====================
-FROM node:20-distroless AS runner
+FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
@@ -32,6 +32,6 @@ EXPOSE 3000
 
 # Distroless no tiene curl, usar node para health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+  CMD wget -q --spider http://localhost:3000/api/health || exit 1
 
-CMD ["sh", "-c", "npx prisma migrate deploy && npm run start -- -H 0.0.0.0 -p 3000"]
+CMD ["sh", "-c", "npm run db:deploy && npm run start"]
