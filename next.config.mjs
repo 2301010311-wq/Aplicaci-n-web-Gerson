@@ -1,8 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typescript: {
-    // CRÍTICO: Remover cuando se resuelvan todos los errores TypeScript
-    // No ocultar errores de compilación en producción
+    // IMPORTANTE: Revisar todos los errores TypeScript
+    // El compilador es strict en Next.js 16
     tsconfigPath: './tsconfig.json',
   },
   images: {
@@ -14,8 +14,9 @@ const nextConfig = {
   productionBrowserSourceMaps: false,
   compress: true,
   poweredByHeader: false,
-  // Mejorar performance
-  swcMinify: true,
+  // NOTA: swcMinify fue removido en Next.js 16 (minificación es automática)
+  // Antes: swcMinify: true,
+  
   // Output optimizado para Next.js 16
   output: 'standalone',
 }
