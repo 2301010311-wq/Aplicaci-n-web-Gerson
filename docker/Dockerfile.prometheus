@@ -1,0 +1,6 @@
+# ==================== MONITORING CONTAINER ====================
+# Contiene Prometheus para scrape de métricas
+FROM prom/prometheus:latest
+COPY monitoring/prometheus.yml /etc/prometheus/prometheus.yml
+COPY monitoring/rules.yml /etc/prometheus/rules.yml
+CMD ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus"]

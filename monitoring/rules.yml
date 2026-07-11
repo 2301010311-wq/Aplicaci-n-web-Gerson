@@ -1,0 +1,66 @@
+groups:
+  - name: Application Alerts
+    interval: 15s
+    rules:
+      # Backend no responde
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend is DOWN"
+          description: "Backend service at {{ $labels.instance }} is not responding"
+
+      # Alto uso de CPU
+      - alert: HighCPUUsage
+        expr: rate(process_cpu_seconds_total{job="backend"}[5m]) > 0.8
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "Backend CPU usage is {{ $value | humanizePercentage }}"
+
+      # Alto uso de memoria
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes{job="backend"} / 1e9 > 0.8
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Backend memory usage is {{ $value | humanizePercentage }} GB"
+
+      # Errores en API
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate in API"
+          description: "Error rate is {{ $value | humanizePercentage }}"
+
+  - name: Database Alerts
+    interval: 15s
+    rules:
+      # PostgreSQL no responde
+      - alert: PostgreSQLDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is DOWN"
+          description: "PostgreSQL database at {{ $labels.instance }} is not responding"
+
+      # Conexiones altas
+      - alert: HighDatabaseConnections
+        expr: pg_stat_activity_count > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High database connections"
+          description: "PostgreSQL has {{ $value }} active connections"

@@ -1,0 +1,5 @@
+# ==================== LOG COLLECTOR CONTAINER ====================
+# Promtail: recolector de logs que envía a Loki
+FROM grafana/promtail:latest
+COPY monitoring/promtail-config.yml /etc/promtail/config.yml
+CMD ["-config.file=/etc/promtail/config.yml"]

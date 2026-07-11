@@ -1,0 +1,5 @@
+# ==================== ALERTING CONTAINER ====================
+# Contiene AlertManager para gestión de alertas
+FROM prom/alertmanager:latest
+COPY monitoring/alertmanager.yml /etc/alertmanager/config.yml
+CMD ["--config.file=/etc/alertmanager/config.yml", "--storage.path=/alertmanager"]

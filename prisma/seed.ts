@@ -1,150 +1,100 @@
-import { PrismaClient } from "@prisma/client"
-import bcrypt from "bcryptjs"
+import { PrismaClient, Role } from "@prisma/client"
+import { hashSync } from "bcryptjs"
 
+// Inicializa el cliente de Prisma
 const prisma = new PrismaClient()
 
+/**
+ * Función principal para sembrar la base de datos con datos iniciales.
+ * Utiliza `upsert` para evitar errores de duplicados si el script se ejecuta varias veces.
+ */
 async function main() {
-  console.log("Iniciando seeding de usuarios...")
+  console.log("🌱 Comenzando el sembrado de la base de datos...")
 
-  // Crear usuarios de prueba con bcryptjs
-  const adminPassword = await bcrypt.hash("Admin123!", 10)
-  const meseroPassword = await bcrypt.hash("Mesero123!", 10)
-  const cocineroPassword = await bcrypt.hash("Cocinero123!", 10)
+  // --- 1. Creación de Usuarios ---
+  console.log("👤 Creando o actualizando usuarios...")
 
-  // Verificar si ya existe el admin
-  const existingAdmin = await prisma.usuarios.findUnique({
-    where: { correo_user: "admin@gerson.com" },
+  const admin = await prisma.user.upsert({
+    where: { email: "admin@gerson.com" },
+    update: {},
+    create: {
+      name: "Administrador del Sistema",
+      email: "admin@gerson.com",
+      password: hashSync("Admin123!", 10),
+      role: Role.ADMIN, // Asigna el rol de Administrador
+    },
   })
+  console.log(`✅ Usuario Administrador creado/actualizado: ${admin.email}`)
 
-  if (existingAdmin) {
-    // Actualizar con contraseña correcta
-    await prisma.usuarios.update({
-      where: { id_user: existingAdmin.id_user },
-      data: { contrasena: adminPassword },
-    })
-    console.log("✓ Usuario admin actualizado con nueva contraseña")
-  } else {
-    const admin = await prisma.usuarios.create({
-      data: {
-        nombre_user: "Admin",
-        apellido_user: "Gerson",
-        correo_user: "admin@gerson.com",
-        contrasena: adminPassword,
-        rol: "Admin",
-      },
-    })
-    console.log("✓ Usuario Admin creado:", admin.correo_user)
-  }
-
-  // Crear mesero de prueba
-  const existingMesero = await prisma.usuarios.findUnique({
-    where: { correo_user: "mesero@gerson.com" },
+  const cocinero = await prisma.user.upsert({
+    where: { email: "cocinero@gerson.com" },
+    update: {},
+    create: {
+      name: "Jefe de Cocina",
+      email: "cocinero@gerson.com",
+      password: hashSync("Cocinero123!", 10),
+      role: Role.COCINERO, // Asigna el rol de Cocinero
+    },
   })
+  console.log(`✅ Usuario Cocinero creado/actualizado: ${cocinero.email}`)
 
-  if (existingMesero) {
-    // Actualizar con contraseña correcta
-    await prisma.usuarios.update({
-      where: { id_user: existingMesero.id_user },
-      data: { contrasena: meseroPassword },
-    })
-    console.log("✓ Usuario mesero actualizado con nueva contraseña")
-  } else {
-    const mesero = await prisma.usuarios.create({
-      data: {
-        nombre_user: "Juan",
-        apellido_user: "Mesero",
-        correo_user: "mesero@gerson.com",
-        contrasena: meseroPassword,
-        rol: "Mesero",
-      },
-    })
-    console.log("✓ Usuario Mesero creado:", mesero.correo_user)
-  }
-
-  // Crear cocinero de prueba
-  const existingCocinero = await prisma.usuarios.findUnique({
-    where: { correo_user: "cocinero@gerson.com" },
+  const mesero = await prisma.user.upsert({
+    where: { email: "mesero@gerson.com" },
+    update: {},
+    create: {
+      name: "Mesero Principal",
+      email: "mesero@gerson.com",
+      password: hashSync("Mesero123!", 10),
+      role: Role.MESERO, // Asigna el rol de Mesero
+    },
   })
+  console.log(`✅ Usuario Mesero creado/actualizado: ${mesero.email}`)
 
-  if (existingCocinero) {
-    // Actualizar con contraseña correcta
-    await prisma.usuarios.update({
-      where: { id_user: existingCocinero.id_user },
-      data: { contrasena: cocineroPassword },
-    })
-    console.log("✓ Usuario cocinero actualizado con nueva contraseña")
-  } else {
-    const cocinero = await prisma.usuarios.create({
-      data: {
-        nombre_user: "Carlos",
-        apellido_user: "Cocinero",
-        correo_user: "cocinero@gerson.com",
-        contrasena: cocineroPassword,
-        rol: "Cocinero",
-      },
-    })
-    console.log("✓ Usuario Cocinero creado:", cocinero.correo_user)
-  }
-
-  console.log("\n✓ Seeding completado!")
-  console.log("\nCredenciales de prueba:")
-  console.log("═══════════════════════════════════════")
-  console.log("Admin:")
-  console.log("  Email: admin@gerson.com")
-  console.log("  Contraseña: Admin123!")
-  console.log("─────────────────────────────────────")
-  console.log("Mesero:")
-  console.log("  Email: mesero@gerson.com")
-  console.log("  Contraseña: Mesero123!")
-  console.log("─────────────────────────────────────")
-  console.log("Cocinero:")
-  console.log("  Email: cocinero@gerson.com")
-  console.log("  Contraseña: Cocinero123!")
-  console.log("═══════════════════════════════════════")
-
-  // Crear mesas de prueba
-  console.log("\n\nCreando mesas de prueba...")
-  const existingMesas = await (prisma as any).mesas.findMany()
-  
-  if (existingMesas.length === 0) {
-    for (let i = 1; i <= 6; i++) {
-      await (prisma as any).mesas.create({
-        data: {
-          numero_mesa: i,
+  // --- 2. Creación de Mesas de Prueba ---
+  console.log("\n🍽️  Creando o actualizando mesas de prueba...")
+  // Usamos una transacción para asegurar que todas las mesas se creen o ninguna.
+  await prisma.$transaction(
+    Array.from({ length: 6 }, (_, i) =>
+      prisma.mesa.upsert({
+        where: { numero_mesa: i + 1 },
+        update: {},
+        create: {
+          numero_mesa: i + 1,
           capacidad_mesa: 4,
           estado_mesa: "Libre",
         },
       })
-    }
-    console.log("✓ 6 mesas creadas")
-  } else {
-    console.log(`✓ Ya existen ${existingMesas.length} mesas`)
-  }
+    )
+  )
+  console.log("✅ 6 mesas creadas/actualizadas.")
 
-  // Crear productos de prueba
-  console.log("\nCreando productos de prueba...")
-  const existingProductos = await (prisma as any).productos.findMany()
-  
-  if (existingProductos.length === 0) {
-    const productos = [
-      { nombre: "Pollo a la Brasa", precio: 25.00, categoria: "Platos", diasVencimiento: 30 },
-      { nombre: "Medio Pollo", precio: 18.00, categoria: "Platos", diasVencimiento: 30 },
-      { nombre: "Cuarto de Pollo", precio: 12.00, categoria: "Platos", diasVencimiento: 30 },
-      { nombre: "Arroz con Pollo", precio: 20.00, categoria: "Platos", diasVencimiento: 30 },
-      { nombre: "Papas Fritas", precio: 8.00, categoria: "Acompañamientos", diasVencimiento: 7 },
-      { nombre: "Ensalada", precio: 10.00, categoria: "Acompañamientos", diasVencimiento: 3 },
-      { nombre: "Gaseosa Pequeña", precio: 3.00, categoria: "Bebidas", diasVencimiento: 365 },
-      { nombre: "Gaseosa Grande", precio: 5.00, categoria: "Bebidas", diasVencimiento: 365 },
-      { nombre: "Agua", precio: 2.00, categoria: "Bebidas", diasVencimiento: 365 },
-      { nombre: "Cerveza", precio: 8.00, categoria: "Bebidas", diasVencimiento: 180 },
-    ]
+  // --- 3. Creación de Productos de Prueba ---
+  console.log("\n🍗 Creando o actualizando productos de prueba...")
+  const productos = [
+    { nombre: "Pollo a la Brasa", precio: 25.0, categoria: "Platos", diasVencimiento: 30 },
+    { nombre: "Medio Pollo", precio: 18.0, categoria: "Platos", diasVencimiento: 30 },
+    { nombre: "Cuarto de Pollo", precio: 12.0, categoria: "Platos", diasVencimiento: 30 },
+    { nombre: "Arroz con Pollo", precio: 20.0, categoria: "Platos", diasVencimiento: 30 },
+    { nombre: "Papas Fritas", precio: 8.0, categoria: "Acompañamientos", diasVencimiento: 7 },
+    { nombre: "Ensalada", precio: 10.0, categoria: "Acompañamientos", diasVencimiento: 3 },
+    { nombre: "Gaseosa Pequeña", precio: 3.0, categoria: "Bebidas", diasVencimiento: 365 },
+    { nombre: "Gaseosa Grande", precio: 5.0, categoria: "Bebidas", diasVencimiento: 365 },
+    { nombre: "Agua", precio: 2.0, categoria: "Bebidas", diasVencimiento: 365 },
+    { nombre: "Cerveza", precio: 8.0, categoria: "Bebidas", diasVencimiento: 180 },
+  ]
 
-    for (const producto of productos) {
+  await prisma.$transaction(
+    productos.map((producto) => {
       const vencimiento = new Date()
       vencimiento.setDate(vencimiento.getDate() + producto.diasVencimiento)
-      
-      await (prisma as any).productos.create({
-        data: {
+
+      return prisma.producto.upsert({
+        where: { nombre_produc: producto.nombre },
+        update: {
+          precio_produc: producto.precio,
+          categoria_produc: producto.categoria,
+        },
+        create: {
           nombre_produc: producto.nombre,
           precio_produc: producto.precio,
           categoria_produc: producto.categoria,
@@ -152,22 +102,21 @@ async function main() {
           vencimiento_produc: vencimiento,
         },
       })
-    }
-    console.log(`✓ ${productos.length} productos creados`)
-  } else {
-    console.log(`✓ Ya existen ${existingProductos.length} productos`)
-  }
+    })
+  )
+  console.log(`✅ ${productos.length} productos creados/actualizados.`)
 
-  console.log("\n═══════════════════════════════════════")
-  console.log("✅ Seeding completado exitosamente!")
-  console.log("═══════════════════════════════════════")
+  console.log("\n🎉 Sembrado completado exitosamente!")
 }
 
+// Ejecuta la función principal y maneja errores
 main()
   .catch((e) => {
-    console.error("Error en seeding:", e)
+    console.error("❌ Error durante el sembrado:", e)
     process.exit(1)
   })
   .finally(async () => {
+    // Cierra la conexión a la base de datos
+    console.log("🔌 Desconectando Prisma Client...")
     await prisma.$disconnect()
   })

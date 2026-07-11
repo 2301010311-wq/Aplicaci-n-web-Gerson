@@ -1,0 +1,6 @@
+# ==================== DATABASE CONTAINER ====================
+# Contiene PostgreSQL con persistent storage
+FROM postgres:16-alpine
+
+# Copia un script de inicialización SQL si existe. Se ejecutará automáticamente.
+COPY monitoring/postgres-init.sql /docker-entrypoint-initdb.d/ || true

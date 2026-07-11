@@ -1,0 +1,12 @@
+# ==================== VISUALIZATION CONTAINER ====================
+# Contiene Grafana para dashboards
+FROM grafana/grafana:latest
+ENV GF_SECURITY_ADMIN_USER=admin
+ENV GF_SECURITY_ADMIN_PASSWORD=admin123
+ENV GF_INSTALL_PLUGINS=grafana-piechart-panel
+ENV GF_USERS_ALLOW_SIGN_UP=false
+
+COPY monitoring/grafana-provisioning /etc/grafana/provisioning
+
+EXPOSE 3000
+CMD ["bin/grafana-server", "--config=/etc/grafana/grafana.ini"]

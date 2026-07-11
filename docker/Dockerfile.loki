@@ -1,0 +1,12 @@
+# ==================== LOGGING CONTAINER ====================
+# Contiene Loki + Promtail para centralización de logs
+FROM grafana/loki:latest AS loki-base
+
+FROM grafana/promtail:latest AS promtail-base
+
+# Multi-stage: combinar Loki y Promtail en un contenedor (opcional)
+# O mantenerlos separados como en docker-compose.yml
+
+FROM loki-base
+COPY monitoring/loki-config.yml /etc/loki/local-config.yaml
+CMD ["-config.file=/etc/loki/local-config.yaml"]

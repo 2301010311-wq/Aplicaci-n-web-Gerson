@@ -1,0 +1,20 @@
+# ==================== STAGE: PRODUCTION RUNTIME ====================
+# Imagen distroless optimizada (100MB)
+FROM node:20-distroless AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/prisma ./prisma
+
+EXPOSE 3000
+
+# Health check usando Node.js
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+
+CMD ["sh", "-c", "npx prisma migrate deploy && npm run start"]

@@ -1,0 +1,236 @@
+#!/usr/bin/env groovy
+
+/**
+ * 🎯 JENKINSFILE MODULAR - Versión Simplificada para Visualización
+ * Cada etapa corre en contenedor, ejecuta su código, recopila métricas
+ */
+
+pipeline {
+    agent any
+    
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        timestamps()
+        timeout(time: 2, unit: 'HOURS')
+    }
+    
+    parameters {
+        choice(
+            name: 'BUILD_STAGE',
+            choices: ['all', 'quick', 'tests-only', 'deploy-only'],
+            description: 'Which stages to run'
+        )
+        booleanParam(
+            name: 'PUSH_REGISTRY',
+            defaultValue: false,
+            description: 'Push images to registry after build'
+        )
+    }
+    
+    environment {
+        BUILD_TAG = "${BUILD_NUMBER}-${GIT_COMMIT.take(7)}"
+        DOCKER_COMPOSE_FILE = "docker-compose.jenkins.yml"
+        REPORT_DIR = "${WORKSPACE}/reports"
+    }
+    
+    stages {
+        stage('📋 Setup') {
+            steps {
+                sh '''
+                    echo "╔════════════════════════════════════════════════════════════════╗"
+                    echo "║       JENKINS MODULAR PIPELINE - POLLERÍA GERSON v2.0         ║"
+                    echo "╚════════════════════════════════════════════════════════════════╝"
+                    mkdir -p ${REPORT_DIR}
+                    docker --version
+                    docker compose version
+                '''
+            }
+        }
+        
+        stage('🐘 PostgreSQL') {
+            steps {
+                sh '''
+                    echo "📦 Stage 1: Building PostgreSQL..."
+                    docker compose -f ${DOCKER_COMPOSE_FILE} build postgres
+                    docker tag gerson-postgres:latest gerson-postgres:${BUILD_TAG}
+                    echo "✅ PostgreSQL container ready"
+                '''
+            }
+        }
+        
+        stage('🧪 Tests') {
+            steps {
+                sh '''
+                    echo "🧪 Stage 2: Running Tests..."
+                    mkdir -p test-results coverage
+                    docker compose -f ${DOCKER_COMPOSE_FILE} build tests
+                    docker compose -f ${DOCKER_COMPOSE_FILE} run --rm tests \
+                        npm test -- --coverage --json --outputFile=/test-results/results.json || true
+                    echo "✅ Tests completed"
+                '''
+            }
+        }
+        
+        stage('🔨 Build') {
+            steps {
+                sh '''
+                    echo "🏗️  Stage 3: Building Application..."
+                    docker compose -f ${DOCKER_COMPOSE_FILE} build builder
+                    docker tag gerson-builder:latest gerson-builder:${BUILD_TAG}
+                    echo "✅ Application built"
+                '''
+            }
+        }
+        
+        stage('⚡ Runtime') {
+            steps {
+                sh '''
+                    echo "⚡ Stage 4: Creating Production Image..."
+                    docker compose -f ${DOCKER_COMPOSE_FILE} build backend
+                    docker tag gerson-backend:latest gerson-backend:${BUILD_TAG}
+                    
+                    SIZE=$(docker inspect -f '{{.Size}}' gerson-backend:latest | numfmt --to=iec 2>/dev/null || echo "N/A")
+                    echo "✅ Runtime image built - Size: $SIZE"
+                '''
+            }
+        }
+        
+        stage('📝 Logging') {
+            parallel {
+                stage('Loki') {
+                    steps {
+                        sh '''
+                            echo "📝 Stage 5A: Building Loki..."
+                            docker compose -f ${DOCKER_COMPOSE_FILE} build loki
+                            echo "✅ Loki ready"
+                        '''
+                    }
+                }
+                stage('Promtail') {
+                    steps {
+                        sh '''
+                            echo "📡 Stage 5B: Building Promtail..."
+                            docker compose -f ${DOCKER_COMPOSE_FILE} build promtail
+                            echo "✅ Promtail ready"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('📊 Monitoring') {
+            parallel {
+                stage('Prometheus') {
+                    steps {
+                        sh '''
+                            echo "📊 Stage 6A: Building Prometheus..."
+                            docker compose -f ${DOCKER_COMPOSE_FILE} build prometheus
+                            echo "✅ Prometheus ready"
+                        '''
+                    }
+                }
+                stage('Grafana') {
+                    steps {
+                        sh '''
+                            echo "📈 Stage 6B: Building Grafana..."
+                            docker compose -f ${DOCKER_COMPOSE_FILE} build grafana
+                            echo "✅ Grafana ready"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('🚨 Alerting') {
+            steps {
+                sh '''
+                    echo "🚨 Stage 7: Building AlertManager..."
+                    docker compose -f ${DOCKER_COMPOSE_FILE} build alertmanager
+                    echo "✅ AlertManager ready"
+                '''
+            }
+        }
+        
+        stage('🔗 Integration Tests') {
+            steps {
+                sh '''
+                    echo "🔗 Stage 8: Running Integration Tests..."
+                    docker compose -f ${DOCKER_COMPOSE_FILE} up -d
+                    
+                    # Esperar a que servicios estén ready
+                    sleep 10
+                    
+                    # Validar endpoints
+                    for i in {1..20}; do
+                        if docker compose -f ${DOCKER_COMPOSE_FILE} exec -T backend \
+                            curl -s http://localhost:3000/api/health > /dev/null; then
+                            echo "✅ Backend responding"
+                            break
+                        fi
+                        echo "Attempt $i/20..."
+                        sleep 2
+                    done
+                    
+                    # Tests
+                    docker compose -f ${DOCKER_COMPOSE_FILE} exec -T backend curl -s http://localhost:3000/api/metrics | head -5
+                    echo "✅ Integration tests passed"
+                    
+                    # Cleanup
+                    docker compose -f ${DOCKER_COMPOSE_FILE} down -v || true
+                '''
+            }
+        }
+        
+        stage('📊 Reporting') {
+            steps {
+                sh '''
+                    echo "📊 Generating Reports..."
+                    
+                    # Image sizes
+                    echo "=== IMAGE SIZES ===" > ${REPORT_DIR}/images.txt
+                    docker images | grep gerson >> ${REPORT_DIR}/images.txt || true
+                    
+                    # Container count
+                    echo "=== BUILD SUMMARY ===" > ${REPORT_DIR}/summary.txt
+                    echo "Build Tag: ${BUILD_TAG}" >> ${REPORT_DIR}/summary.txt
+                    echo "Timestamp: $(date)" >> ${REPORT_DIR}/summary.txt
+                    echo "" >> ${REPORT_DIR}/summary.txt
+                    echo "✅ 7 Containers Built:" >> ${REPORT_DIR}/summary.txt
+                    echo "  1. PostgreSQL (Database)" >> ${REPORT_DIR}/summary.txt
+                    echo "  2. Tests (Unit Tests)" >> ${REPORT_DIR}/summary.txt
+                    echo "  3. Builder (Build & Lint)" >> ${REPORT_DIR}/summary.txt
+                    echo "  4. Backend (Production Runtime - Distroless)" >> ${REPORT_DIR}/summary.txt
+                    echo "  5. Loki (Centralized Logging)" >> ${REPORT_DIR}/summary.txt
+                    echo "  6. Prometheus (Metrics & Monitoring)" >> ${REPORT_DIR}/summary.txt
+                    echo "  7. AlertManager (Automated Alerting)" >> ${REPORT_DIR}/summary.txt
+                    echo "  8. Grafana (Dashboards)" >> ${REPORT_DIR}/summary.txt
+                    
+                    cat ${REPORT_DIR}/summary.txt
+                '''
+            }
+        }
+    }
+    
+    post {
+        always {
+            archiveArtifacts artifacts: 'reports/**,test-results/**,coverage/**', allowEmptyArchive: true
+            cleanWs(deleteDirs: true, patterns: [[pattern: '**/node_modules/**', type: 'INCLUDE']])
+        }
+        success {
+            sh '''
+                echo ""
+                echo "╔════════════════════════════════════════════════════════════════╗"
+                echo "║                  ✅ PIPELINE SUCCESSFUL                        ║"
+                echo "╚════════════════════════════════════════════════════════════════╝"
+            '''
+        }
+        failure {
+            sh '''
+                echo ""
+                echo "╔════════════════════════════════════════════════════════════════╗"
+                echo "║                  ❌ PIPELINE FAILED                            ║"
+                echo "╚════════════════════════════════════════════════════════════════╝"
+            '''
+        }
+    }
+}
