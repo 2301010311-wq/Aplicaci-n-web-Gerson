@@ -31,7 +31,7 @@ describe('Authentication Utils', () => {
         return pwd.length >= 8 && /[A-Z]/.test(pwd) && /[0-9]/.test(pwd);
       };
 
-      expect(validatePassword('Test123')).toBe(true);
+      expect(validatePassword('Test1234')).toBe(true);
       expect(validatePassword('weak')).toBe(false);
     });
   });
