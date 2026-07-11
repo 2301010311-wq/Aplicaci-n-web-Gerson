@@ -14,7 +14,9 @@ RUN npx prisma generate
 ENV DATABASE_URL=postgresql://build:[REDACTED]@127.0.0.1:5432/build?schema=public
 RUN npm run build && npm prune --production
 
-# ==================== STAGE 3: DISTROLESS RUNTIME ====================
+# ==================== STAGE 3: PRODUCTION RUNTIME ====================
+# Usando Alpine (compatible, funcional, ~170MB)
+# Distroless optimización futura cuando esté probado en prod
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -26,12 +28,12 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/middleware.ts ./
 
 EXPOSE 3000
 
-# Distroless no tiene curl, usar node para health check
+# Health check (Alpine tiene wget/curl)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD wget -q --spider http://localhost:3000/api/health || exit 1
 
-CMD ["sh", "-c", "npm run db:deploy && npm run start"]
+# Ejecutar migraciones y start
+CMD ["sh", "-c", "npx prisma migrate deploy && npm run start"]

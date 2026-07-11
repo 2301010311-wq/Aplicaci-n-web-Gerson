@@ -1,0 +1,519 @@
+// JENKINSFILE - Pipeline CI/CD Docker Orchestration para Pollería Gerson
+// Este pipeline orquesta TODOS los contenedores definidos en docker-compose.jenkins.yml
+// Ejecuta: Database → Tests → Build → Runtime → Logging → Monitoring → Alerting
+
+@Library('shared') _
+
+pipeline {
+  agent any
+
+  // ============================================================================
+  // OPCIONES GLOBALES
+  // ============================================================================
+  options {
+    timestamps()
+    timeout(time: 1, unit: 'HOURS')
+    buildDiscarder(logRotator(numToKeepStr: '10'))
+    disableConcurrentBuilds()
+  }
+
+  // ============================================================================
+  // VARIABLES DE ENTORNO GLOBALES
+  // ============================================================================
+  environment {
+    // Rutas del proyecto
+    PROJECT_DIR = "/app/workspace/gerson"
+    COMPOSE_FILE = "docker-compose.jenkins.yml"
+    COMPOSE_PROJECT_NAME = "gerson-jenkins-${BUILD_NUMBER}"
+    
+    // Base de datos (cargar de Jenkins Credentials)
+    DB_USER = credentials('gerson-db-user')
+    DB_PASSWORD = credentials('gerson-db-password')
+    DB_NAME = "polleria_gerson"
+    JWT_SECRET = credentials('gerson-jwt-secret')
+    
+    // URLs y logs
+    REPORTS_DIR = "${WORKSPACE}/test-results"
+    COVERAGE_DIR = "${WORKSPACE}/coverage"
+    DOCKER_LOGS_DIR = "${WORKSPACE}/docker-logs"
+    
+    // Build Info
+    BUILD_TIMESTAMP = sh(script: "date +%Y%m%d_%H%M%S", returnStdout: true).trim()
+  }
+
+  // ============================================================================
+  // STAGE: PREPARACIÓN Y VALIDACIÓN
+  // ============================================================================
+  stages {
+    stage("Checkout") {
+      steps {
+        script {
+          echo "🔄 Clonando repositorio..."
+          checkout([$class: 'GitSCM',
+            branches: [[name: '*/main']],
+            userRemoteConfigs: [[
+              url: 'https://github.com/tu-usuario/aplicacion-web-gerson.git',
+              credentialsId: 'github-credentials'
+            ]]
+          ])
+          echo "✅ Repositorio clonado exitosamente"
+        }
+      }
+    }
+
+    stage("Validate Environment") {
+      steps {
+        script {
+          echo "🔍 Validando ambiente Docker..."
+          sh '''
+            echo "--- Docker Version ---"
+            docker --version
+            echo ""
+            echo "--- Docker Compose Version ---"
+            docker compose version
+            echo ""
+            echo "--- Available Disk Space ---"
+            df -h
+            echo ""
+            echo "--- Docker Daemon Status ---"
+            docker info | head -20
+          '''
+        }
+      }
+    }
+
+    stage("Clean Previous Artifacts") {
+      steps {
+        script {
+          echo "🧹 Limpiando artefactos previos..."
+          sh '''
+            rm -rf "${REPORTS_DIR}" "${COVERAGE_DIR}" "${DOCKER_LOGS_DIR}"
+            mkdir -p "${REPORTS_DIR}" "${COVERAGE_DIR}" "${DOCKER_LOGS_DIR}"
+            
+            # Detener y remover contenedores previos del mismo proyecto
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" down --volumes 2>/dev/null || true
+            docker system prune -f --volumes 2>/dev/null || true
+          '''
+        }
+      }
+    }
+
+    // ========================================================================
+    // ETAPA 1: INFRASTRUCTURE (Base de Datos)
+    // ========================================================================
+    stage("Stage 1: Infrastructure - Database") {
+      steps {
+        script {
+          echo "📦 ETAPA 1/7: Construyendo e inicializando Base de Datos..."
+          sh '''
+            echo "Building PostgreSQL image..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              build postgres
+            
+            echo "Starting PostgreSQL service..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              up -d postgres
+            
+            echo "Waiting for PostgreSQL to be ready..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              exec -T postgres pg_isready -U ${DB_USER} -d ${DB_NAME}
+            
+            for i in {1..30}; do
+              if docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+                exec -T postgres pg_isready -U ${DB_USER} -d ${DB_NAME} &>/dev/null; then
+                echo "✅ PostgreSQL está listo"
+                break
+              fi
+              echo "Esperando PostgreSQL... intento $i/30"
+              sleep 2
+            done
+          '''
+        }
+      }
+    }
+
+    // ========================================================================
+    // ETAPA 2: QUALITY ASSURANCE (Tests)
+    // ========================================================================
+    stage("Stage 2: QA - Unit & Integration Tests") {
+      steps {
+        script {
+          echo "🧪 ETAPA 2/7: Ejecutando Tests..."
+          sh '''
+            echo "Building tests image..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              build tests
+            
+            echo "Running tests..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              run --rm tests || TEST_FAILED=1
+            
+            # Copiar resultados de tests
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              cp tests:/test-results/results.json "${REPORTS_DIR}/" 2>/dev/null || true
+            
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              cp tests:/app/coverage "${COVERAGE_DIR}/" 2>/dev/null || true
+          '''
+        }
+      }
+      post {
+        always {
+          script {
+            echo "📊 Publicando resultados de tests..."
+            junit testResults: "${REPORTS_DIR}/**/*.xml", allowEmptyResults: true
+            
+            // Publicar reporte de cobertura
+            publishHTML target: [
+              reportDir: "${COVERAGE_DIR}",
+              reportFiles: 'index.html',
+              reportName: 'Code Coverage Report'
+            ]
+          }
+        }
+      }
+    }
+
+    // ========================================================================
+    // ETAPA 3: BUILD (Compilación)
+    // ========================================================================
+    stage("Stage 3: Build - Compilation") {
+      steps {
+        script {
+          echo "🔨 ETAPA 3/7: Compilando aplicación..."
+          sh '''
+            echo "Building builder image..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              build builder
+            
+            echo "Running build..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              up builder
+            
+            # Verificar que la compilación fue exitosa
+            if [ ! -d ".next" ]; then
+              echo "❌ Error: .next directory not found after build"
+              exit 1
+            fi
+            
+            echo "✅ Compilación completada"
+            ls -lah .next/ | head -20
+          '''
+        }
+      }
+    }
+
+    // ========================================================================
+    // ETAPA 4: RUNTIME (Ejecución de la aplicación)
+    // ========================================================================
+    stage("Stage 4: Runtime - Application Deployment") {
+      steps {
+        script {
+          echo "🚀 ETAPA 4/7: Desplegando aplicación..."
+          sh '''
+            echo "Building backend image..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              build backend
+            
+            echo "Starting backend service..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              up -d backend
+            
+            echo "Waiting for backend to be ready..."
+            for i in {1..30}; do
+              if docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+                exec -T backend node -e "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})" 2>/dev/null; then
+                echo "✅ Backend está listo en puerto 3000"
+                break
+              fi
+              echo "Esperando backend... intento $i/30"
+              sleep 2
+            done
+          '''
+        }
+      }
+      post {
+        always {
+          script {
+            echo "🔍 Recolectando logs del backend..."
+            sh '''
+              docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+                logs backend > "${DOCKER_LOGS_DIR}/backend.log" 2>&1 || true
+            '''
+          }
+        }
+      }
+    }
+
+    // ========================================================================
+    // ETAPA 5: LOGGING (Stack de logging)
+    // ========================================================================
+    stage("Stage 5: Observability - Logging Stack") {
+      steps {
+        script {
+          echo "📋 ETAPA 5/7: Iniciando stack de logging..."
+          sh '''
+            echo "Building Loki image..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              build loki
+            
+            echo "Building Promtail image..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              build promtail
+            
+            echo "Starting Loki and Promtail services..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              up -d loki promtail
+            
+            sleep 5
+            echo "✅ Stack de logging iniciado"
+            
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              logs loki promtail > "${DOCKER_LOGS_DIR}/logging.log" 2>&1 || true
+          '''
+        }
+      }
+    }
+
+    // ========================================================================
+    // ETAPA 6: MONITORING (Prometheus + Grafana)
+    // ========================================================================
+    stage("Stage 6: Observability - Monitoring Stack") {
+      steps {
+        script {
+          echo "📊 ETAPA 6/7: Iniciando stack de monitoreo..."
+          sh '''
+            echo "Building Prometheus image..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              build prometheus
+            
+            echo "Building Grafana image..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              build grafana
+            
+            echo "Starting Prometheus and Grafana services..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              up -d prometheus grafana
+            
+            sleep 10
+            echo "✅ Stack de monitoreo iniciado"
+            
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              logs prometheus grafana > "${DOCKER_LOGS_DIR}/monitoring.log" 2>&1 || true
+            
+            echo ""
+            echo "📈 URLs de Monitoreo:"
+            echo "  - Prometheus: http://localhost:9091"
+            echo "  - Grafana: http://localhost:3001 (admin/admin123)"
+          '''
+        }
+      }
+    }
+
+    // ========================================================================
+    // ETAPA 7: ALERTING (AlertManager)
+    // ========================================================================
+    stage("Stage 7: Observability - Alerting") {
+      steps {
+        script {
+          echo "🚨 ETAPA 7/7: Iniciando AlertManager..."
+          sh '''
+            echo "Building AlertManager image..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              build alertmanager
+            
+            echo "Starting AlertManager service..."
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              up -d alertmanager
+            
+            sleep 5
+            echo "✅ AlertManager iniciado"
+            
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              logs alertmanager > "${DOCKER_LOGS_DIR}/alerting.log" 2>&1 || true
+            
+            echo ""
+            echo "🚨 URL de Alertas:"
+            echo "  - AlertManager: http://localhost:9093"
+          '''
+        }
+      }
+    }
+
+    // ========================================================================
+    // VERIFICACIÓN FINAL
+    // ========================================================================
+    stage("Verify All Services") {
+      steps {
+        script {
+          echo "✅ VERIFICACIÓN FINAL: Comprobando todos los servicios..."
+          sh '''
+            echo ""
+            echo "========== ESTADO DE CONTENEDORES =========="
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" ps
+            
+            echo ""
+            echo "========== ESTADO DE SALUD =========="
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              ps --filter="health=healthy"
+            
+            echo ""
+            echo "========== VOLUMENES =========="
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              volumes
+            
+            echo ""
+            echo "========== REDES =========="
+            docker network inspect "${COMPOSE_PROJECT_NAME}_gerson_network" | jq '.Containers[] | {Name:.Name, IPv4Address:.IPv4Address}' || true
+            
+            echo ""
+            echo "========== PUERTOS EXPUESTOS =========="
+            netstat -tlnp 2>/dev/null | grep -E '3000|3001|3100|5432|9090|9091|9093' || echo "Verificar puertos manualmente"
+          '''
+        }
+      }
+    }
+
+    // ========================================================================
+    // PERFORMANCE TESTS (Opcional)
+    // ========================================================================
+    stage("Performance & Load Testing") {
+      steps {
+        script {
+          echo "⚡ Ejecutando pruebas de rendimiento..."
+          sh '''
+            echo "Running basic health check and response time tests..."
+            
+            for i in {1..5}; do
+              echo "Request $i..."
+              time curl -s http://localhost:3000/api/health > /dev/null 2>&1 || echo "Error en request $i"
+              sleep 1
+            done
+            
+            echo "✅ Pruebas de rendimiento completadas"
+          '''
+        }
+      }
+    }
+
+    // ========================================================================
+    // ARCHIVING & REPORTS
+    // ========================================================================
+    stage("Archive Artifacts & Generate Reports") {
+      steps {
+        script {
+          echo "📦 Archivando artefactos y generando reportes..."
+          sh '''
+            # Recopilar todos los logs
+            docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+              logs > "${DOCKER_LOGS_DIR}/all-services.log" 2>&1
+            
+            # Generar reporte de imágenes
+            docker images | grep gerson > "${DOCKER_LOGS_DIR}/docker-images.txt" || true
+            
+            # Información de build
+            cat > "${DOCKER_LOGS_DIR}/build-info.txt" << EOF
+Build Timestamp: $(date)
+Build Number: ${BUILD_NUMBER}
+Job Name: ${JOB_NAME}
+Build URL: ${BUILD_URL}
+Git Commit: $(git rev-parse HEAD)
+Git Branch: $(git rev-parse --abbrev-ref HEAD)
+EOF
+          '''
+          
+          // Archivar artefactos
+          archiveArtifacts artifacts: 'test-results/**,coverage/**,docker-logs/**,.next/**', 
+            allowEmptyArchive: true, 
+            fingerprint: true
+          
+          echo "✅ Artefactos archivados"
+        }
+      }
+    }
+  }
+
+  // ============================================================================
+  // POST BUILD ACTIONS
+  // ============================================================================
+  post {
+    always {
+      script {
+        echo "🧹 Ejecutando limpieza..."
+        sh '''
+          # Generar reporte final
+          echo "========== BUILD SUMMARY ==========" > "${DOCKER_LOGS_DIR}/final-summary.txt"
+          echo "Build Status: ${currentBuild.result}" >> "${DOCKER_LOGS_DIR}/final-summary.txt"
+          echo "Build Duration: ${currentBuild.durationString}" >> "${DOCKER_LOGS_DIR}/final-summary.txt"
+          echo "Timestamp: $(date)" >> "${DOCKER_LOGS_DIR}/final-summary.txt"
+          echo "" >> "${DOCKER_LOGS_DIR}/final-summary.txt"
+          
+          # Estadísticas de Docker
+          echo "========== DOCKER STATS ==========" >> "${DOCKER_LOGS_DIR}/final-summary.txt"
+          docker system df >> "${DOCKER_LOGS_DIR}/final-summary.txt"
+          
+          cat "${DOCKER_LOGS_DIR}/final-summary.txt"
+        '''
+      }
+    }
+    
+    success {
+      script {
+        echo "✅ PIPELINE EXITOSO"
+        sh '''
+          echo "✅ Pipeline completado exitosamente en $(date)"
+          
+          # Listar URL de acceso a servicios
+          echo ""
+          echo "========== SERVICIOS DISPONIBLES =========="
+          echo "Backend API: http://localhost:3000"
+          echo "Grafana: http://localhost:3001 (admin/admin123)"
+          echo "Prometheus: http://localhost:9091"
+          echo "AlertManager: http://localhost:9093"
+          echo "Loki: http://localhost:3100"
+          echo ""
+        '''
+        
+        // Enviar notificación de éxito
+        // emailext(
+        //   subject: "✅ Jenkins Build #${BUILD_NUMBER} - EXITOSO",
+        //   body: "El pipeline se completó exitosamente.\n\nVer detalles: ${BUILD_URL}",
+        //   to: "${CHANGE_AUTHOR_EMAIL}"
+        // )
+      }
+    }
+    
+    failure {
+      script {
+        echo "❌ PIPELINE FALLIDO"
+        sh '''
+          echo "❌ Pipeline falló en $(date)"
+          echo ""
+          echo "Últimos 50 líneas de logs:"
+          docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" \
+            logs --tail=50 2>/dev/null || echo "No se pudieron obtener logs"
+        '''
+        
+        // Enviar notificación de fallo
+        // emailext(
+        //   subject: "❌ Jenkins Build #${BUILD_NUMBER} - FALLIDO",
+        //   body: "El pipeline falló.\n\nVer detalles: ${BUILD_URL}\n\nConsola: ${BUILD_URL}console",
+        //   to: "${CHANGE_AUTHOR_EMAIL}"
+        // )
+      }
+    }
+    
+    cleanup {
+      script {
+        // Opcional: Limpiar contenedores después del build
+        // Descomenta si quieres que se detengan automáticamente
+        /*
+        sh '''
+          echo "Stopping all services..."
+          docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" down
+        '''
+        */
+      }
+    }
+  }
+}

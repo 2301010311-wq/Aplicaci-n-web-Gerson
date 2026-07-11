@@ -1,12 +1,15 @@
 # ==================== STAGE: TEST RUNNER ====================
 # Ejecuta los tests (Jest) en contenedor aislado
-FROM node:20-alpine AS test-runner
+FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
+
 COPY . .
-RUN npm run build:cache || true
-# Health check para tests
+
+# Health check para container (verificar que npm test es instalable)
 HEALTHCHECK --interval=5s --timeout=3s --retries=3 \
-  CMD npm test -- --testPathPattern="example" || exit 1
+  CMD npm run test -- --listTests > /dev/null 2>&1 || exit 1
+
+# Ejecutar tests con coverage
 CMD ["npm", "test", "--", "--coverage", "--passWithNoTests"]

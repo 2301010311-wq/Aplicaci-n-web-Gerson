@@ -1,20 +1,22 @@
 # ==================== STAGE: PRODUCTION RUNTIME ====================
-# Imagen distroless optimizada (100MB)
-FROM node:20-distroless AS runtime
+# Usando Alpine (compatible, probado, funcional)
+# TODO: Optimizar a distroless (gcr.io/distroless/nodejs20) en producción
+FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/prisma ./prisma
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY .next ./.next
+COPY public ./public
+COPY prisma ./prisma
 
 EXPOSE 3000
 
-# Health check usando Node.js
+# Health check (Alpine tiene wget)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+  CMD wget -q --spider http://localhost:3000/api/health || exit 1
 
 CMD ["sh", "-c", "npx prisma migrate deploy && npm run start"]

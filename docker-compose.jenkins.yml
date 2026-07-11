@@ -42,9 +42,8 @@ services:
     environment:
       NODE_ENV: test
       DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-polleria_gerson}?schema=public
-      JEST_OUTPUT_FILE: /test-results/results.json
     volumes:
-      - ./test-results:/test-results
+      - ./test-results:/app/test-results
       - ./coverage:/app/coverage
     networks:
       - gerson_network
@@ -52,7 +51,7 @@ services:
       component: "tests"
       jenkins-pipeline: "quality-assurance"
       stage: "2-testing"
-    command: npm test -- --coverage --json --outputFile=/test-results/results.json
+    command: npm test -- --coverage
 
   # ==================== STAGE 3: BUILD & LINT ====================
   builder:
@@ -68,14 +67,12 @@ services:
       DATABASE_URL: postgresql://build:[REDACTED]@127.0.0.1:5432/build
     volumes:
       - ./.next:/app/.next
-      - ./dist:/app/dist
     networks:
       - gerson_network
     labels:
       component: "builder"
       jenkins-pipeline: "build"
       stage: "3-building"
-    command: npm run build
 
   # ==================== STAGE 4: RUNTIME ====================
   backend:
@@ -88,8 +85,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      builder:
-        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -105,7 +100,7 @@ services:
       - "3000:3000"
       - "9090:9090"
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -119,37 +114,32 @@ services:
 
   # ==================== STAGE 5: LOGGING ====================
   loki:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.loki
+    image: grafana/loki:latest
     container_name: gerson_loki
-    image: gerson-loki:latest
     restart: unless-stopped
     ports:
       - "3100:3100"
     volumes:
+      - ./monitoring/loki-config.yml:/etc/loki/local-config.yaml
       - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
     networks:
       - gerson_network
     labels:
       component: "logging"
       jenkins-pipeline: "observability"
       stage: "5-logging"
-    environment:
-      - LOKI_CONFIG_FILE=/etc/loki/local-config.yaml
 
   promtail:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.promtail
+    image: grafana/promtail:latest
     container_name: gerson_promtail
-    image: gerson-promtail:latest
     restart: unless-stopped
     volumes:
       - ./monitoring/promtail-config.yml:/etc/promtail/config.yml
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ./logs:/app/logs
+    command: -config.file=/etc/promtail/config.yml
     networks:
       - gerson_network
     depends_on:
@@ -161,16 +151,19 @@ services:
 
   # ==================== STAGE 6: MONITORING ====================
   prometheus:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.prometheus
+    image: prom/prometheus:latest
     container_name: gerson_prometheus
-    image: gerson-prometheus:latest
     restart: unless-stopped
     ports:
       - "9091:9090"
     volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/rules.yml:/etc/prometheus/rules.yml
       - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
     networks:
       - gerson_network
     depends_on:
@@ -179,19 +172,21 @@ services:
       component: "monitoring"
       jenkins-pipeline: "observability"
       stage: "6-monitoring"
-    command: --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus
 
   grafana:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.grafana
+    image: grafana/grafana:latest
     container_name: gerson_grafana
-    image: gerson-grafana:latest
     restart: unless-stopped
     ports:
       - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+      - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana-provisioning:/etc/grafana/provisioning
     networks:
       - gerson_network
     depends_on:
@@ -201,22 +196,20 @@ services:
       component: "monitoring"
       jenkins-pipeline: "observability"
       stage: "6-monitoring"
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin123
 
   # ==================== STAGE 7: ALERTING ====================
   alertmanager:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.alertmanager
+    image: prom/alertmanager:latest
     container_name: gerson_alertmanager
-    image: gerson-alertmanager:latest
     restart: unless-stopped
     ports:
       - "9093:9093"
     volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/config.yml
       - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/alertmanager'
     networks:
       - gerson_network
     depends_on:
@@ -243,6 +236,3 @@ volumes:
 networks:
   gerson_network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.25.0.0/16
