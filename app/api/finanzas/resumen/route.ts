@@ -58,23 +58,27 @@ export async function GET() {
         where: { fecha_gasto: { gte: inicio, lte: fin } },
       })
 
+      const ingresosNum = Number(ingresosDelMes._sum?.monto || 0)
+      const gastosNum = Number(gastosDelMes._sum?.monto || 0)
+      
       ventasPorMes.push({
         mes: fecha.toLocaleDateString("es-ES", { month: "short" }),
-        ingresos: Number(ingresosDelMes._sum?.monto || 0),
-        gastos: Number(gastosDelMes._sum?.monto || 0),
+        ingresos: Number.isFinite(ingresosNum) ? ingresosNum : 0,
+        gastos: Number.isFinite(gastosNum) ? gastosNum : 0,
       })
     }
 
     // Proyección de flujo (próximos 6 meses)
     const proyeccionCaja = []
-    let saldoActual = utilidadNeta
+    let saldoActual = Number.isFinite(utilidadNeta) ? utilidadNeta : 0
     for (let i = 1; i <= 6; i++) {
       const fecha = new Date()
       fecha.setMonth(fecha.getMonth() + i)
       saldoActual = saldoActual + (Math.random() * 2000 - 500) // Simulación
+      const saldoNum = Number.isFinite(saldoActual) ? saldoActual : 0
       proyeccionCaja.push({
         mes: fecha.toLocaleDateString("es-ES", { month: "short" }),
-        saldo: saldoActual,
+        saldo: saldoNum,
       })
     }
 
@@ -90,10 +94,10 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      ingresosTotales: Number(ingresosTotales),
-      gastosTotales: Number(gastosTotales),
-      utilidadNeta: Number(utilidadNeta),
-      flujoActual: Number(utilidadNeta),
+      ingresosTotales: Number.isFinite(ingresosTotales) ? ingresosTotales : 0,
+      gastosTotales: Number.isFinite(gastosTotales) ? gastosTotales : 0,
+      utilidadNeta: Number.isFinite(utilidadNeta) ? utilidadNeta : 0,
+      flujoActual: Number.isFinite(utilidadNeta) ? utilidadNeta : 0,
       ventasPorMes,
       proyeccionCaja,
       alertas,

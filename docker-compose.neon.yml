@@ -1,48 +1,21 @@
-# Docker Compose versión 3.9
-# Nota: 'version' es obsoleto en docker-compose v2+, pero se incluye para compatibilidad
+# Docker Compose - Usando PostgreSQL 17 en Neon Cloud
+# ⚠️ ESTA VERSIÓN USA BD EXTERNA (Neon), no local
 
 services:
-  # ==================== DATABASE ====================
-  postgres:
-    image: postgres:16-alpine
-    container_name: gerson_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-      POSTGRES_DB: ${DB_NAME:-gerson_db}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-gerson_db}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - gerson_network
-
-  # ==================== BACKEND ====================
+  # ==================== BACKEND (sin BD local) ====================
   backend:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: gerson_backend
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
+    # ⚠️ NO depende de postgres local - usa Neon cloud
     environment:
       NODE_ENV: production
       PORT: 3000
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      DB_NAME: ${DB_NAME:-gerson_db}
-      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-gerson_db}?schema=public
-      JWT_SECRET: ${JWT_SECRET:-your-secret-key}
+      # BD Externa - Neon PostgreSQL 17
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
       LOKI_URL: http://loki:3100
     ports:
       - "3000:3000"
@@ -144,8 +117,6 @@ services:
       - gerson_network
 
 volumes:
-  postgres_data:
-    driver: local
   loki_data:
     driver: local
   prometheus_data:

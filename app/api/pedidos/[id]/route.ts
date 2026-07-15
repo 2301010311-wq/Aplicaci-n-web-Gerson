@@ -96,31 +96,119 @@ export async function GET(
 }
 
 // Actualiza el estado de un pedido
-export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   // Verifica permisos del usuario
   const auth = await requireAuth(["Admin", "Mesero", "Cocinero", "Cajero"])
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
-
+ 
   try {
-    // Extrae el ID del pedido
     const { id } = await params
+    const pedidoId = parseInt(id)
+    const body = await request.json()
 
-    // Obtiene los datos enviados en la petición (nuevo estado)
-    const { estado } = await request.json()
+    // CASO 1: Solo se está actualizando el estado del pedido
+    if (body.estado && !body.detalles) {
+      const pedidoActualizado = await prisma.pedidos.update({
+        where: { id_pedido: pedidoId },
+        data: { estado_pedido: body.estado },
+      })
+      return NextResponse.json({
+        id: pedidoActualizado.id_pedido.toString(),
+        estado: pedidoActualizado.estado_pedido,
+      })
+    }
 
-    // Actualiza el estado del pedido en la base de datos
-    const pedido = await prisma.pedidos.update({
-      where: { id_pedido: parseInt(id) },
-      data: { estado_pedido: estado },
+    // CASO 2: Se están modificando los detalles del pedido (lógica compleja)
+    const { detalles: nuevosDetalles, observaciones } = body
+
+    if (!nuevosDetalles) {
+      return NextResponse.json({ error: "Faltan detalles o estado en la petición" }, { status: 400 })
+    }
+
+    const detallesActualizados = await prisma.$transaction(async (tx) => {
+      const detallesAntiguos = await tx.detallepedido.findMany({
+        where: { id_pedido: pedidoId },
+      })
+
+      const stockAjustes = new Map<number, number>()
+
+      // Devolver stock de productos antiguos
+      for (const detalle of detallesAntiguos) {
+        if (detalle.id_produc) {
+          stockAjustes.set(detalle.id_produc, (stockAjustes.get(detalle.id_produc) || 0) + detalle.cantidad)
+        }
+      }
+
+      // Descontar stock de productos nuevos
+      for (const detalle of nuevosDetalles) {
+        if (detalle.productoId && !String(detalle.productoId).startsWith("otro_")) {
+          const productoId = parseInt(detalle.productoId)
+          stockAjustes.set(productoId, (stockAjustes.get(productoId) || 0) - detalle.cantidad)
+        }
+      }
+
+      // Aplicar ajustes de stock
+      for (const [productoId, ajuste] of stockAjustes.entries()) {
+        if (ajuste !== 0) {
+          await tx.productos.update({
+            where: { id_produc: productoId },
+            data: { stock_produc: { increment: ajuste } },
+          })
+        }
+      }
+
+      // Eliminar detalles antiguos y crear los nuevos
+      await tx.detallepedido.deleteMany({ where: { id_pedido: pedidoId } })
+
+      const detallesCreados = []
+      for (const detalle of nuevosDetalles) {
+        const subtotal = detalle.cantidad * detalle.precioUnitario
+        let nuevoDetalle
+        if (String(detalle.productoId).startsWith("otro_")) {
+          nuevoDetalle = await tx.detallepedido.create({
+            data: {
+              id_pedido: pedidoId,
+              nombre_produc_personalizado: detalle.nombre,
+              cantidad: detalle.cantidad,
+              precio_unitario: detalle.precioUnitario,
+              subtotal,
+            },
+          })
+        } else {
+          nuevoDetalle = await tx.detallepedido.create({
+            data: {
+              id_pedido: pedidoId,
+              id_produc: parseInt(detalle.productoId),
+              cantidad: detalle.cantidad,
+              precio_unitario: detalle.precioUnitario,
+              subtotal,
+            },
+          })
+        }
+        detallesCreados.push(nuevoDetalle)
+      }
+      return detallesCreados
     })
 
-    // Retorna el pedido actualizado
+    const nuevoTotal = detallesActualizados.reduce((sum, d) => sum + parseFloat(d.subtotal.toString()), 0)
+
+    const pedidoFinal = await prisma.pedidos.update({
+      where: { id_pedido: pedidoId },
+      data: {
+        total: nuevoTotal,
+        observaciones: observaciones || null,
+      },
+    })
+
     return NextResponse.json({
-      id: pedido.id_pedido.toString(),
-      fecha: pedido.fecha_pedido,
-      estado: pedido.estado_pedido,
+      id: pedidoFinal.id_pedido.toString(),
+      estado: pedidoFinal.estado_pedido,
+      total: nuevoTotal,
     })
   } catch (error) {
     // Manejo de errores al actualizar el pedido
@@ -160,34 +248,74 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       )
     }
 
-    // Elimina los detalles asociados al pedido
-    await prisma.detallepedido.deleteMany({
-      where: { id_pedido: pedidoId },
-    })
+    // Iniciar transacción para asegurar atomicidad en la cancelación
+    await prisma.$transaction(async (tx) => {
+      // 1. Devolver stock de productos genéricos
+      const detalles = await tx.detallepedido.findMany({
+        where: { id_pedido: pedidoId, id_produc: { not: null } },
+      });
 
-    // Elimina la información de delivery si existe
-    await (prisma as any).pedidos_delivery.deleteMany({
-      where: { id_pedido: pedidoId },
-    })
+      for (const detalle of detalles) {
+        await tx.productos.update({
+          where: { id_produc: detalle.id_produc! },
+          data: { stock_produc: { increment: detalle.cantidad } },
+        });
+      }
 
-    // Cambia el estado del pedido a "Cancelado"
-    await prisma.pedidos.update({
-      where: { id_pedido: pedidoId },
-      data: { estado_pedido: "Cancelado" },
-    })
+      // 2. Devolver presas de pollo al inventario del día
+      const detallesPollo = await tx.detalle_pollos_pedido.findMany({
+        where: { id_pedido: pedidoId },
+      });
 
-    // Libera la mesa si el pedido estaba asociado a una mesa física
-    if (pedido.mesas.numero_mesa > 0) {
-      await prisma.mesas.update({
-        where: { id_mesa: pedido.id_mesa },
-        data: { estado_mesa: "Libre" },
-      })
-    }
+      if (detallesPollo.length > 0) {
+        const hoy = new Date(pedido.fecha_pedido); // Usar la fecha del pedido
+        hoy.setHours(0, 0, 0, 0);
+
+        const inventario = await tx.inventario_pollos.findFirst({
+          where: { fecha: hoy },
+        });
+
+        if (inventario) {
+          for (const detallePollo of detallesPollo) {
+            if (detallePollo.tipo_presa === "pecho") {
+              await tx.inventario_pollos.update({
+                where: { id_inventario: inventario.id_inventario },
+                data: { pechos_disponibles: { increment: detallePollo.cantidad } },
+              });
+            } else if (detallePollo.tipo_presa === "pierna") {
+              await tx.inventario_pollos.update({
+                where: { id_inventario: inventario.id_inventario },
+                data: { piernas_disponibles: { increment: detallePollo.cantidad } },
+              });
+            }
+          }
+        }
+      }
+
+      // 3. Eliminar detalles y registros asociados
+      await tx.detalle_pollos_pedido.deleteMany({ where: { id_pedido: pedidoId } });
+      await tx.detallepedido.deleteMany({ where: { id_pedido: pedidoId } });
+      await (tx as any).pedidos_delivery.deleteMany({ where: { id_pedido: pedidoId } });
+
+      // 4. Actualizar estado del pedido a "Cancelado"
+      await tx.pedidos.update({
+        where: { id_pedido: pedidoId },
+        data: { estado_pedido: "Cancelado" },
+      });
+
+      // 5. Liberar la mesa si aplica
+      if (pedido.mesas.numero_mesa > 0) {
+        await tx.mesas.update({
+          where: { id_mesa: pedido.id_mesa },
+          data: { estado_mesa: "Libre" },
+        });
+      }
+    });
 
     // Retorna confirmación de cancelación
     return NextResponse.json({
       success: true,
-      message: "Pedido cancelado exitosamente",
+      message: "Pedido cancelado y stock devuelto exitosamente",
       id: pedidoId.toString(),
     })
   } catch (error) {

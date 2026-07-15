@@ -20,10 +20,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files
+# Local Environment Variables
+# Ignore all local environment files, which may contain secrets.
+# Only .env.example should be committed.
 .env*
 !.env.example
-!.env.production
 
 # vercel
 .vercel
@@ -39,5 +40,6 @@ prisma/dev.db-journal
 # docker
 .docker
 docker-data
-.vercel
-.env*.local
+
+# Ignorar secretos de Kubernetes
+k8s/secret.yaml
