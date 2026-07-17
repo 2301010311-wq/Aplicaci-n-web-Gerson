@@ -19,7 +19,6 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-    <SpeedInsights/>
       <body className={inter.className}>
         <AlertProvider>
           {children}
