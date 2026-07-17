@@ -268,7 +268,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       });
 
       if (detallesPollo.length > 0) {
-        const hoy = new Date(pedido.fecha_pedido); // Usar la fecha del pedido
+        const hoy = new Date(pedido.fecha_pedido || new Date()); // Usar la fecha del pedido
         hoy.setHours(0, 0, 0, 0);
 
         const inventario = await tx.inventario_pollos.findFirst({
