@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { hashPassword } from "@/lib/auth"
 import { requireAuth } from "@/lib/middleware-auth"
+import { createUserSchema, validateSchema } from "@/lib/validations/auth"
 
 export async function GET() {
   const auth = await requireAuth(["Admin"])
@@ -45,11 +46,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { nombre, apellido, email, password, rol } = await request.json()
+    const body = await request.json().catch(() => null)
+    const validation = validateSchema(createUserSchema, body)
 
-    if (!nombre || !email || !password || !rol) {
-      return NextResponse.json({ error: "Campos requeridos: nombre, email, password, rol" }, { status: 400 })
+    if (!validation.success) {
+      return NextResponse.json({ error: "Datos inválidos", errors: validation.errors }, { status: 400 })
     }
+
+    const { nombre, apellido, email, password, rol } = validation.data
 
     const existingUser = await prisma.usuarios.findUnique({
       where: { correo_user: email },
@@ -64,7 +68,7 @@ export async function POST(request: NextRequest) {
     const usuario = await prisma.usuarios.create({
       data: {
         nombre_user: nombre,
-        apellido_user: apellido || nombre,
+        apellido_user: apellido,
         correo_user: email,
         contrasena: hashedPassword,
         rol: rol,
@@ -81,10 +85,7 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error("Error creando usuario:", error)
-    return NextResponse.json({ 
-      error: "Error al crear usuario",
-      details: error instanceof Error ? error.message : "Error desconocido"
-    }, { status: 500 })
+    return NextResponse.json({ error: "Error al crear usuario" }, { status: 500 })
   }
 }
 

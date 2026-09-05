@@ -38,10 +38,21 @@ export function InsumosTable() {
     try {
       const res = await fetch("/api/insumos")
       const data = await res.json()
-      setInsumos(data)
-      setFilteredInsumos(data)
+
+      if (!res.ok) {
+        console.error("Error cargando insumos:", data?.error || data)
+        setInsumos([])
+        setFilteredInsumos([])
+        return
+      }
+
+      const insumosData = Array.isArray(data) ? data : []
+      setInsumos(insumosData)
+      setFilteredInsumos(insumosData)
     } catch (error) {
       console.error("Error cargando insumos:", error)
+      setInsumos([])
+      setFilteredInsumos([])
     } finally {
       setLoading(false)
     }

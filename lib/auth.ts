@@ -2,7 +2,18 @@ import { SignJWT, jwtVerify } from "jose"
 import bcrypt from "bcryptjs"
 import { cookies } from "next/headers"
 
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || "polleria-gerson-secret-key-2024")
+const jwtSecretEnv = process.env.JWT_SECRET
+
+if (!jwtSecretEnv || jwtSecretEnv.trim().length === 0) {
+  throw new Error(
+    "JWT_SECRET no está configurado. Defínelo en las variables de entorno " +
+      "(Vercel: Project Settings → Environment Variables, para Production/Preview/Development) " +
+      "antes de desplegar. Nunca uses un valor por defecto: un secreto fijo en el código " +
+      "permite falsificar sesiones de cualquier usuario, incluido Admin."
+  )
+}
+
+const secret = new TextEncoder().encode(jwtSecretEnv)
 
 export interface JWTPayload {
   id: string

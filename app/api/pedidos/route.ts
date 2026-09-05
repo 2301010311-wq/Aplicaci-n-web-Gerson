@@ -427,9 +427,6 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     console.error("Error creando pedido:", error)
-    return NextResponse.json({ 
-      error: "Error al crear pedido",
-      details: error instanceof Error ? error.message : "Error desconocido"
-    }, { status: 500 })
+    return NextResponse.json({ error: "Error al crear pedido" }, { status: 500 })
   }
 }

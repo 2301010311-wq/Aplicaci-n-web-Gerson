@@ -1,51 +1,43 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { verifyPassword, createToken } from "@/lib/auth"
+import { checkRateLimit } from "@/lib/rate-limit"
+import { loginSchema, validateSchema } from "@/lib/validations/auth"
+
+function getClientIp(request: NextRequest): string {
+  const forwardedFor = request.headers.get("x-forwarded-for")
+  if (forwardedFor) return forwardedFor.split(",")[0].trim()
+  return request.headers.get("x-real-ip") || "unknown"
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password } = await request.json()
-    const normalizedEmail = String(email || "").trim().toLowerCase()
-    const normalizedPassword = String(password || "")
-
-    if (!normalizedEmail || !normalizedPassword) {
-      return NextResponse.json({ error: "Email y contraseña son requeridos" }, { status: 400 })
+    const ip = getClientIp(request)
+    const allowed = await checkRateLimit(`login:${ip}`)
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "Demasiados intentos. Intenta nuevamente en un minuto." },
+        { status: 429 }
+      )
     }
 
-    if (normalizedEmail === "rescate@gerson.com" && normalizedPassword === "Rescate123!") {
-      const token = await createToken({
-        id: "4",
-        nombre: "Usuario Rescate",
-        email: "rescate@gerson.com",
-        rol: "Admin",
-      })
+    const body = await request.json().catch(() => null)
+    const validation = validateSchema(loginSchema, body)
 
-      const response = NextResponse.json({
-        success: true,
-        usuario: {
-          id: 4,
-          nombre: "Usuario Rescate",
-          email: "rescate@gerson.com",
-          rol: "Admin",
-        },
-      })
-
-      response.cookies.set("token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge: 60 * 60 * 24,
-        path: "/",
-      })
-
-      return response
+    if (!validation.success) {
+      return NextResponse.json({ error: "Datos inválidos", errors: validation.errors }, { status: 400 })
     }
+
+    const { email: normalizedEmail, password: normalizedPassword } = validation.data
 
     const usuario = await prisma.usuarios.findUnique({
       where: { correo_user: normalizedEmail },
     })
 
     if (!usuario) {
+      // Mismo mensaje/tiempo de respuesta que un password incorrecto:
+      // evita que un atacante pueda enumerar qué emails existen.
+      await verifyPassword(normalizedPassword, "$2a$10$invalidsaltinvalidsaltinvalidsaltuXG")
       return NextResponse.json({ error: "Credenciales inválidas" }, { status: 401 })
     }
 

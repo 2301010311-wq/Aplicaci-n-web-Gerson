@@ -65,10 +65,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     })
   } catch (error) {
     console.error("Error actualizando usuario:", error)
-    return NextResponse.json({ 
-      error: "Error al actualizar usuario",
-      details: error instanceof Error ? error.message : "Error desconocido"
-    }, { status: 500 })
+    return NextResponse.json({ error: "Error al actualizar usuario" }, { status: 500 })
   }
 }
 

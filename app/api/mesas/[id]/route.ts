@@ -79,9 +79,6 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     return NextResponse.json({ success: true, message: "Mesa eliminada correctamente" })
   } catch (error) {
     console.error("Error eliminando mesa:", error)
-    const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
-    return NextResponse.json({ 
-      error: `Error al eliminar mesa: ${errorMessage}` 
-    }, { status: 500 })
+    return NextResponse.json({ error: "Error al eliminar mesa" }, { status: 500 })
   }
 }

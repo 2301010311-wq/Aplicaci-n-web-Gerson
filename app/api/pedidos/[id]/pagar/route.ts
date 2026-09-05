@@ -77,12 +77,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     })
   } catch (error) {
     console.error("[PAGAR] Error:", error)
-    return NextResponse.json(
-      { 
-        error: "Error al procesar pago",
-        details: error instanceof Error ? error.message : undefined,
-      },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Error al procesar pago" }, { status: 500 })
   }
 }
