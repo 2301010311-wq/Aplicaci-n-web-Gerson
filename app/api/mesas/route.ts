@@ -1,9 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAuth } from "@/lib/middleware-auth"
+import { mesaSchema, validateSchema } from "@/lib/validations/schemas"
 
 export async function GET() {
-  const auth = await requireAuth(["Admin", "Mesero"])
+  const auth = await requireAuth(["Admin", "Mesero", "Tester"])
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
@@ -37,11 +38,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { numero, capacidad, estado } = await request.json()
-
-    if (!numero || !capacidad) {
-      return NextResponse.json({ error: "Número y capacidad son requeridos" }, { status: 400 })
+    const body = await request.json().catch(() => null)
+    const validation = validateSchema(mesaSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: "Datos inválidos", errors: validation.errors }, { status: 400 })
     }
+    const { numero, capacidad, estado } = validation.data
 
     const existingMesa = await prisma.mesas.findUnique({
       where: { numero_mesa: numero },

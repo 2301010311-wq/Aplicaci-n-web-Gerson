@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   // Verifica que el usuario tenga permisos para acceder al pedido
-  const auth = await requireAuth(["Admin", "Mesero", "Cocinero", "Cajero"])
+  const auth = await requireAuth(["Admin", "Mesero", "Cocinero", "Cajero", "Tester"])
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
@@ -101,7 +101,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   // Verifica permisos del usuario
-  const auth = await requireAuth(["Admin", "Mesero", "Cocinero", "Cajero"])
+  const auth = await requireAuth(["Admin", "Mesero", "Cocinero", "Cajero", "Tester"])
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
@@ -220,7 +220,7 @@ export async function PUT(
 // Cancela un pedido (cambia estado y libera recursos asociados)
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   // Verifica permisos del usuario
-  const auth = await requireAuth(["Admin", "Mesero"])
+  const auth = await requireAuth(["Admin", "Mesero", "Tester"])
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }

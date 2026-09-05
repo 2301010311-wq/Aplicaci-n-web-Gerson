@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAuth } from "@/lib/middleware-auth"
+import { rateLimit } from "@/lib/rate-limit"
 
 function getTodayInLima() {
   const today = new Intl.DateTimeFormat("en-CA", {
@@ -14,7 +15,7 @@ function getTodayInLima() {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requireAuth(["Admin", "Mesero", "Cajero"])
+  const auth = await requireAuth(["Admin", "Mesero", "Cajero", "Tester"])
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
@@ -127,9 +128,15 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireAuth(["Admin", "Mesero"])
+  const auth = await requireAuth(["Admin", "Mesero", "Tester"])
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
+  }
+
+  // 20 pedidos por minuto por usuario: cubre horas pico reales, bloquea spam automatizado
+  const allowed = rateLimit.check(`pedidos:${auth.session.id}`, 20, 60000)
+  if (!allowed) {
+    return NextResponse.json({ error: "Demasiadas solicitudes. Intenta nuevamente en un minuto." }, { status: 429 })
   }
 
   try {

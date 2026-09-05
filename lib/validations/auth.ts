@@ -42,7 +42,7 @@ export const createUserSchema = z.object({
       'Contraseña debe contener al menos una mayúscula, una minúscula y un número'),
 
   rol: z
-    .enum(['Admin', 'Mesero', 'Cocinero', 'Cajero'])
+    .enum(['Admin', 'Mesero', 'Cocinero', 'Cajero', 'Tester'])
 })
 
 // Schema para actualizar usuario (campos opcionales)
@@ -68,7 +68,7 @@ export const updateUserSchema = z.object({
     .optional(),
 
   rol: z
-    .enum(['Admin', 'Mesero', 'Cocinero', 'Cajero'])
+    .enum(['Admin', 'Mesero', 'Cocinero', 'Cajero', 'Tester'])
     .optional()
 }).refine(
   (data) => Object.keys(data).length > 0,

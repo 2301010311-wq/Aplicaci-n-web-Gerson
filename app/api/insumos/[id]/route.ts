@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAuth } from "@/lib/middleware-auth"
+import { insumoSchema, validateSchema } from "@/lib/validations/schemas"
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAuth(["Admin"])
@@ -10,7 +11,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
   try {
     const { id } = await params
-    const { nombre, stockActual, stockMinimo, unidadMedida, fechaVencimiento } = await request.json()
+    const body = await request.json().catch(() => null)
+    const validation = validateSchema(insumoSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: "Datos inválidos", errors: validation.errors }, { status: 400 })
+    }
+    const { nombre, stockActual, stockMinimo, unidadMedida, fechaVencimiento } = validation.data
 
     const insumo = await prisma.insumos.update({
       where: { id_insumo: parseInt(id) },

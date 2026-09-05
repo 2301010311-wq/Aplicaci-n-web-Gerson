@@ -162,6 +162,9 @@ export function UsuarioForm({ usuario }: UsuarioFormProps) {
               <SelectItem value="Cajero" className="text-[#EAEAEA]">
                 Cajero
               </SelectItem>
+              <SelectItem value="Tester" className="text-[#EAEAEA]">
+                Tester (solo pruebas, sin permisos destructivos)
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>

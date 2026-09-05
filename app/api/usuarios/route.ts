@@ -5,7 +5,7 @@ import { requireAuth } from "@/lib/middleware-auth"
 import { createUserSchema, validateSchema } from "@/lib/validations/auth"
 
 export async function GET() {
-  const auth = await requireAuth(["Admin"])
+  const auth = await requireAuth(["Admin", "Tester"])
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }

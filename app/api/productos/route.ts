@@ -1,9 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAuth } from "@/lib/middleware-auth"
+import { productoSchema, validateSchema } from "@/lib/validations/schemas"
 
 export async function GET() {
-  const auth = await requireAuth(["Admin", "Mesero"])
+  const auth = await requireAuth(["Admin", "Mesero", "Tester"])
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
@@ -43,13 +44,12 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { nombre, descripcion, precio, categoria, estado, stock, controlarStock, fechaVencimiento } = await request.json()
-    
-    if (!nombre || !precio || !categoria) {
-      return NextResponse.json({ 
-        error: "Campos requeridos: nombre, precio, categoria" 
-      }, { status: 400 })
+    const body = await request.json().catch(() => null)
+    const validation = validateSchema(productoSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: "Datos inválidos", errors: validation.errors }, { status: 400 })
     }
+    const { nombre, descripcion, precio, categoria, estado, stock, controlarStock, fechaVencimiento } = validation.data
 
     // Si no se proporciona fecha de vencimiento, usar una fecha muy lejana (100 años)
     const fechaVencimientoFinal = fechaVencimiento 

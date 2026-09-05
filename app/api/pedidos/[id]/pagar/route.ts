@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/middleware-auth"
 import { Decimal } from "@prisma/client/runtime/library"
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireAuth(["Admin", "Cajero"])
+  const auth = await requireAuth(["Admin", "Cajero", "Tester"])
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }

@@ -6,7 +6,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ mesaId: string }> }
 ) {
-  const auth = await requireAuth(["Admin", "Mesero", "Cajero"])
+  const auth = await requireAuth(["Admin", "Mesero", "Cajero", "Tester"])
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }

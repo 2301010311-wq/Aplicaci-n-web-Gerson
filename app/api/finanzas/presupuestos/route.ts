@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAuth } from "@/lib/middleware-auth"
+import { presupuestoSchema, validateSchema } from "@/lib/validations/schemas"
 
 export async function GET() {
-  const auth = await requireAuth(["Admin", "Cajero"])
+  const auth = await requireAuth(["Admin", "Cajero", "Tester"])
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
@@ -34,7 +35,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const data = await request.json()
+    const body = await request.json().catch(() => null)
+    const validation = validateSchema(presupuestoSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: "Datos inválidos", errors: validation.errors }, { status: 400 })
+    }
+    const data = validation.data
 
     const presupuesto = await (prisma as any).presupuestos.create({
       data: {
