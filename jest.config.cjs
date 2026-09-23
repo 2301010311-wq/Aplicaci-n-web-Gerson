@@ -1,11 +1,20 @@
-module.exports = {
+const base = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/__tests__', '<rootDir>/app'],
-  testMatch: ['**/?(*.)+(spec|test).[jt]s?(x)'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
   },
+  transform: {
+    '^.+\\.tsx?$': ['ts-jest', {
+      tsconfig: {
+        jsx: 'react-jsx',
+        esModuleInterop: true,
+      },
+    }],
+  },
+}
+
+module.exports = {
   collectCoverageFrom: [
     'app/**/*.{ts,tsx}',
     'lib/**/*.{ts,tsx}',
@@ -22,14 +31,23 @@ module.exports = {
       statements: 50,
     },
   },
-  transform: {
-    '^.+\\.tsx?$': ['ts-jest', {
-      tsconfig: {
-        jsx: 'react-jsx',
-        esModuleInterop: true,
-      },
-    }],
-  },
-  setupFilesAfterEnv: ['<rootDir>/__tests__/setup.ts'],
-  testTimeout: 10000,
-};
+  projects: [
+    {
+      ...base,
+      displayName: 'unit',
+      roots: ['<rootDir>/__tests__', '<rootDir>/app', '<rootDir>/lib'],
+      testMatch: ['**/?(*.)+(spec|test).[jt]s?(x)'],
+      testPathIgnorePatterns: ['/node_modules/', '/__tests__/integration/'],
+      setupFilesAfterEnv: ['<rootDir>/__tests__/setup.ts'],
+      testTimeout: 10000,
+    },
+    {
+      ...base,
+      displayName: 'integration',
+      roots: ['<rootDir>/__tests__/integration', '<rootDir>/app', '<rootDir>/lib'],
+      testMatch: ['**/*.int.test.ts'],
+      globalSetup: '<rootDir>/__tests__/integration/guard.ts',
+      testTimeout: 30000,
+    },
+  ],
+}
