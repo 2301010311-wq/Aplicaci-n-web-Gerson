@@ -86,6 +86,7 @@
     "lint": "eslint .",
     "test": "jest --selectProjects unit",
     "test:integration": "dotenv -e .env.test -- jest --selectProjects integration --runInBand",
+    "test:coverage:rf": "dotenv -e .env.test -- jest -c jest.coverage-rf.config.cjs --runInBand --coverage",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev --name init",
     "db:deploy": "prisma migrate deploy",
